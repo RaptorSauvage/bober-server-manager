@@ -21,3 +21,4 @@ frontend/cluster-data.js
 frontend/steamcmd.js
 frontend/groupconsole.js
 frontend/players.js
+frontend/event-scheduler.js

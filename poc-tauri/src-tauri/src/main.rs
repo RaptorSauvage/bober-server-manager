@@ -615,6 +615,28 @@ fn group_console_unsubscribe(sidecar: tauri::State<SidecarHandle>) -> Result<Val
     sidecar.call("groupConsole.unsubscribe", None)
 }
 
+/// Backs EventSchedulerView.tsx - a nineteenth real page. See sidecar.ts's own comment:
+/// real, unmodified armModEvent/disarmModEvent/armAllModEvents from lib/modEvents.ts.
+#[tauri::command]
+fn mod_events_list(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("modEvents.list", None)
+}
+
+#[tauri::command]
+fn mod_events_save(event: Value, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("modEvents.save", Some(event))
+}
+
+#[tauri::command]
+fn mod_events_delete(id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("modEvents.delete", Some(serde_json::json!({ "id": id })))
+}
+
+#[tauri::command]
+fn mod_events_history(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("modEvents.history", None)
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -920,7 +942,11 @@ fn main() {
             steamcmd_install,
             steamcmd_add_firewall_rule,
             group_console_subscribe,
-            group_console_unsubscribe
+            group_console_unsubscribe,
+            mod_events_list,
+            mod_events_save,
+            mod_events_delete,
+            mod_events_history
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

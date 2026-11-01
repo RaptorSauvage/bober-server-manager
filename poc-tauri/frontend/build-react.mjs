@@ -28,7 +28,8 @@ const pages = [
   'cluster-data',
   'steamcmd',
   'groupconsole',
-  'players'
+  'players',
+  'event-scheduler'
 ]
 
 for (const page of pages) {

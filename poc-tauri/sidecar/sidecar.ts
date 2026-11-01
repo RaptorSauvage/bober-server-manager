@@ -89,10 +89,11 @@ import {
   getBackupLog
 } from '../../src/main/lib/backup'
 import { listPlayerBackupFolders, listPlayerBackups, openPlayerBackupFolder } from '../../src/main/lib/playerBackup'
-import { getSettings, saveSettings } from '../../src/main/store'
+import { getSettings, saveSettings, listModEvents, saveModEvent, deleteModEvent, listModEventHistory } from '../../src/main/store'
+import { armModEvent, disarmModEvent, armAllModEvents } from '../../src/main/lib/modEvents'
 import { send, resolveRustResponse } from './rpcToRust'
 import type { GameId } from '../../shared/games'
-import type { AppSettings, ServerProfile } from '../../shared/types'
+import type { AppSettings, ModEvent, ServerProfile } from '../../shared/types'
 
 interface RpcRequest {
   id: number
@@ -704,7 +705,30 @@ const methods: Record<string, (params: unknown) => unknown> = {
     stopGroupConsoleWatch?.()
     stopGroupConsoleWatch = null
     return { ok: true }
-  }
+  },
+  // A nineteenth real page: EventSchedulerView.tsx - automatically adds/removes a set of mod
+  // ids on target servers when a scheduled event starts/ends. Real, unmodified
+  // listModEvents/saveModEvent/deleteModEvent/listModEventHistory (store.ts) and
+  // armModEvent/disarmModEvent (lib/modEvents.ts) - the latter owns real `node-cron`
+  // schedules and `setTimeout`s (not Electron APIs) that fire a real reconciliation pass
+  // (applyModEventChange -> real profiles.save + real syncAseModsToIni), including a real
+  // start/stop cycle through the same real startServer/stopServer this PoC's "The actual
+  // headline case" already proved, when an event's shutdownOnStart/shutdownOnEnd is set. No
+  // push event needed - the real page just re-fetches the list/history after every save, the
+  // same shape "A ninth real page" (MapManagementTab) already proved doesn't need one either.
+  'modEvents.list': () => listModEvents(),
+  'modEvents.save': (params) => {
+    const modEvent = params as ModEvent
+    const events = saveModEvent(modEvent)
+    armModEvent(modEvent)
+    return events
+  },
+  'modEvents.delete': (params) => {
+    const { id } = params as { id: string }
+    disarmModEvent(id)
+    return deleteModEvent(id)
+  },
+  'modEvents.history': () => listModEventHistory()
 }
 
 let stopConsoleWatch: (() => void) | null = null
@@ -755,6 +779,13 @@ adoptPersistedProcesses(listProfiles(), getRunningPids(), getRunningStartedAt())
 // { active: false }, even with a running server and a real cron schedule saved, because
 // nothing had ever subscribed it to real status transitions.
 registerBackupScheduleWatcher()
+
+// Real, unmodified armAllModEvents() - the real index.ts's own startup call, same shape as
+// adoptPersistedProcesses/registerBackupScheduleWatcher above: arms every saved event's real
+// node-cron/setTimeout schedule AND runs an immediate reconciliation pass per event, so a
+// sidecar process that starts mid-event (or mid-gap) still ends up with the right mods
+// present/absent right away, not just from the next scheduled firing onward.
+armAllModEvents()
 
 const rl = readline.createInterface({ input: process.stdin })
 rl.on('line', async (line) => {

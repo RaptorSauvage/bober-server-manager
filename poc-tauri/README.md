@@ -38,7 +38,7 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   packaging" below. `src/main.rs` keeps a background async task reading the sidecar's stdout
   that routes each line either to the pending `call()` it answers (has an `"id"`), a
   `"shell-request"` (the sidecar calling back into Rust - see "The reverse direction" below), or
-  out to the webview as an ordinary Tauri event (any other `"event"`), and exposes seventy-four
+  out to the webview as an ordinary Tauri event (any other `"event"`), and exposes seventy-eight
   Tauri commands: `profiles_list`, `profiles_save` (takes a profile object), `profiles_copy`/
   `profiles_move` (take `profileId`/`destInstallDir`/`newName` - see "A second real page" below),
   `log_record` (takes a message string), `manager_log_get_all` (see "A real React page" below),
@@ -79,7 +79,9 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   `steamcmd_install`, and `steamcmd_add_firewall_rule`. The seventeenth (see "A seventeenth real
   page" below) added `group_console_subscribe`/`group_console_unsubscribe` (`group_console_rcon_send`
   already existed, see "A tenth real page" above). The eighteenth (see "An eighteenth real page"
-  below) added none at all - a pure frontend composition of four already-proven pages.
+  below) added none at all - a pure frontend composition of four already-proven pages. The
+  nineteenth (see "A nineteenth real page" below) added `mod_events_list`/`mod_events_save`/
+  `mod_events_delete`/`mod_events_history`.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -1729,6 +1731,53 @@ enable ... in Settings" empty state, each exactly matching that page's own alrea
 standalone screenshot. No new bug - this round existed specifically to prove composition, not new
 real-code surface, and found nothing wrong with it.
 
+### A nineteenth real page: a subsystem that reconciles itself immediately, not just on a live push or a click
+
+`EventSchedulerView.tsx` (`src/renderer/src/pages/`) schedules a set of CurseForge mod ids to be
+automatically added to target servers' mod lists when an event starts, and removed again when it
+ends. Picked specifically because `lib/modEvents.ts`'s real `armModEvent()`/`armAllModEvents()`
+own real `node-cron` schedules and `setTimeout`s (not Electron APIs - confirmed, same as every
+other "is this really just Node" check this PoC runs before porting) that fire a real
+reconciliation pass (`applyModEventChange`) the moment an event is saved *or* the sidecar itself
+starts - a genuinely different trigger shape from every real-time-update subsystem this PoC had
+ported before (a live push event reacting to something that already happened, or an RPC call
+reacting to a click): here, *saving* the event is itself what can immediately mutate real state
+elsewhere in the app, with no further action needed. This also makes it the first page in this
+PoC whose real form uses a native `<input type="datetime-local">` and the first needing a modal
+(`wizard-overlay`/`wizard-modal`) - new CSS to write, but zero new sidecar wiring for either; both
+are plain HTML/React, no `window.api` involved.
+
+**Confirmed standalone first**, deliberately, specifically to observe the real reconciliation
+side effect under controlled conditions before risking it through a real UI click: saving an
+event with a `startAt` in the past correctly triggered an *immediate* real reconciliation -
+`123456` was really appended to all three real seeded profiles' own `mods` arrays (not simulated),
+a real `manager-log-entry` push (`"Mod(s) added: 123456"`) and three real `profiles-changed`
+pushes fired (one per profile actually saved), and a real history entry was recorded - all from
+one `modEvents.save` call, with no explicit "apply now" step anywhere in the real code. Manually
+reverted the real profiles' `mods` arrays back to empty afterward (direct config edit, the same
+category of sandbox cleanup as reverting `tauri.conf.json` between rounds) to keep later rounds'
+screenshots honest, since `modEvents.delete` (confirmed separately, see below) only removes the
+*event* - the real UI's own delete-confirmation text says plainly it "does not undo any mods it
+already added/removed," and this PoC's standalone run exercised exactly that real behavior.
+
+**Confirmed through the real compiled app**, this time with a deliberately *future*-dated event
+(`startAt`/`endAt` both well ahead) specifically to observe the opposite real code path without
+touching the real seeded profiles' mods again: pointed the main window at `event-scheduler.html`
+and screenshotted under Xvfb - the real, unmodified empty state, then the real "+ New Event"
+modal, with real native date-picker widgets (WebKitGTK's own calendar popups, not a custom
+component) actually used to pick a real future date in each field. Submitting created a real event
+that correctly showed status "Scheduled" (not "Active") in the real table - `isEventActive()`'s
+own client-side logic correctly read a future `startAt` and did **not** trigger reconciliation
+this time, confirmed by the real seeded profiles' `mods` arrays staying empty afterward. The real
+History tab correctly showed the one real history entry from the earlier standalone round, with
+real server names resolved from real profile ids. Did not click through to a real `Delete Event`
+confirmation in this round - `deleteEvent()` goes through the real `confirmAction()` -> native
+`window.confirm()`, an unconfirmed happy path in a headless Xvfb session (same already-documented
+category of gap as the native folder/file pickers), so cleanup was done directly against the real
+config file instead, the same way the mod-list cleanup was. No new bug this round - the one thing
+genuinely worth finding (immediate reconciliation on save) is real, documented component/library
+behavior working exactly as designed, not a defect.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2075,6 +2124,19 @@ real-code surface, and found nothing wrong with it.
   mounted their real child fresh on each click, each matching that page's own earlier standalone
   screenshot exactly. No new bug - this round tested composition itself, not new real-code
   surface.
+- **~~Nothing about a subsystem that reconciles its own state immediately on save, not just on a
+  live push or a click~~ - proven, a nineteenth real page.** See "A nineteenth real page" above:
+  `EventSchedulerView.tsx`'s real `armModEvent()` (real `node-cron`/`setTimeout`, no Electron
+  coupling) fires a real reconciliation the instant a past-dated event is saved - confirmed
+  standalone, where it genuinely added a real mod id to all three real seeded profiles in one
+  call, then confirmed through the real compiled app with a future-dated event correctly staying
+  "Scheduled" and leaving those same real profiles untouched. First page needing a real native
+  `<input type="datetime-local">` and a modal dialog, both proven with zero new sidecar wiring.
+  Still unconfirmed: the real `Delete Event` button's `window.confirm()` round trip (same
+  already-documented category of gap as the native file/folder pickers - a human click a headless
+  Xvfb session can't provide), and the `shutdownOnStart`/`shutdownOnEnd` real stop-then-start
+  cycle specifically from this subsystem (the underlying `startServer`/`stopServer` calls
+  themselves are already proven elsewhere in this PoC, just not triggered from this code path).
 
 ## Where the real Electron coupling lives
 
