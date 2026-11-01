@@ -113,7 +113,9 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   twenty-ninth (see "A twenty-ninth real page" below) added `minecraft_server_get_status`/
   `minecraft_server_send_command`/`minecraft_console_get_backlog` - one hundred and
   thirty-nine Tauri commands total. The thirtieth (see "A thirtieth real page" below) added
-  `minecraft_detect_launchable` - one hundred and forty Tauri commands total.
+  `minecraft_detect_launchable` - one hundred and forty Tauri commands total. The thirty-first
+  (see "A thirty-first real page" below) added `minecraft_backup_get_log` and a test-only
+  `minecraft_backup_append_test_log_line` - one hundred and forty-two Tauri commands total.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -2227,6 +2229,44 @@ the real `detectMinecraftLaunchable()` through the full Rust+sidecar pipeline an
 file name" with the real `paper-1.20.1-196.jar` it found on disk - confirming this round's one
 new call site, not just the three reused ones, actually works end to end. No new bug.
 
+### A thirty-first real page: the Minecraft backup process log, and a live-push round trip verified via devtools
+
+`MinecraftServerDetail/BackupLogPanel.tsx` - a small (53-line), self-contained live log of a
+backup's save-off → save-all flush → settle → zip → save-on sequence, the Minecraft-side twin of
+ARK's own already-proven `ServerDetail/BackupLogPanel.tsx`. Backed by `lib/minecraftBackup.ts`'s
+real, unmodified `getMinecraftBackupLog()` (an in-memory `Map<profileId, BackupLogEntry[]>`, not
+disk-backed) and its own `minecraftBackupEvents` 'log' emitter - the same request/response +
+push-event shape ARK's backup log already proved, applied to Minecraft's own in-memory log store
+for the first time.
+
+Unlike every other push event this PoC has exercised so far, nothing in the currently-ported
+Minecraft subsystem can legitimately trigger one yet - `createMinecraftBackup()` (the real
+function that would call `logMinecraftBackup()`) lives in `BackupsTab.tsx`/`ModsTab.tsx`
+territory, still unported. Rather than leave the live-push half of this page's contract
+unconfirmed, added one test-only sidecar method, `minecraft.backup.appendTestLogLine`, that
+calls the real `logMinecraftBackup()` directly - not a synthetic line format to parse (unlike
+`console.appendTestLine`'s own test-only method from "A sixth real page", which has to fabricate
+a line the real log parser accepts), just the real logging function itself, invoked for test
+purposes. Exposed as `minecraft_backup_append_test_log_line`, the same test-only pattern
+`server.installTestExecutable`/`console.appendTestLine` already established.
+
+**Confirmed standalone:** `minecraft.backup.getLog` returns `[]` for a profile with no log
+entries yet (matches the real function's own `?? []` fallback); `appendTestLogLine` followed by
+`getLog` round-trips the real entry correctly.
+
+**Confirmed through the real compiled app, including the live push path:** the real, unmodified
+`BackupLogPanel.tsx` rendered its honest `"No backup activity yet."` empty state on mount. With
+WebKitGTK's own Inspect Element → Console open (same technique as "A sixth real page"'s original
+bug hunt), typing `window.__TAURI__.core.invoke('minecraft_backup_append_test_log_line', {
+profileId, message })` by hand and pressing enter made the real log entry appear in the running
+panel within about a second, correctly timestamped and formatted (`9:45:00 PM  Disabling
+autosave and flushing the world to disk (save-all flush)...`) with no page reload - confirming
+the full push-event pipeline end to end for this new real call pair: sidecar
+`EventEmitter.emit('log', ...)` → Rust `app.emit` forwarding → `window.__TAURI__.event.listen`
+→ the real component's own `setEntries` state update. No new bug - the only thing unconfirmed is
+what triggers this log in practice (a real `createMinecraftBackup()` run), which needs
+`BackupsTab.tsx` itself, still unported.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2713,6 +2753,14 @@ new call site, not just the three reused ones, actually works end to end. No new
   layout per server type (Forge/NeoForge's own launcher scripts vs. a plain `server.jar`), and
   the rest of `MinecraftServerDetail/` (`BackupLogPanel.tsx`, `BackupsTab.tsx`, `ModsTab.tsx`,
   `ServerSettingsTab.tsx`, `index.tsx`) and `MinecraftDashboard.tsx` remain completely unported.
+- **~~Nothing about the Minecraft backup log, or a live push event with no real trigger yet~~ -
+  proven, a thirty-first real page.** See "A thirty-first real page" above: the real, unmodified
+  `BackupLogPanel.tsx` rendered its honest empty state, and a real log entry pushed through the
+  full sidecar→Rust→webview pipeline (triggered by hand via devtools, since no real
+  `createMinecraftBackup()` call path exists yet) appeared live with no reload. Still unconfirmed:
+  what actually triggers this log in normal use - needs `BackupsTab.tsx` itself, plus the rest of
+  `MinecraftServerDetail/` (`BackupsTab.tsx`, `ModsTab.tsx`, `ServerSettingsTab.tsx`, `index.tsx`)
+  and `MinecraftDashboard.tsx`, still completely unported.
 
 ## Where the real Electron coupling lives
 

@@ -167,6 +167,7 @@ import {
 import { getStatus as getMinecraftStatus, minecraftServerEvents, sendStdinCommand, getConsoleBacklog, minecraftConsoleEvents } from '../../src/main/lib/minecraftProcess'
 import { sendMinecraftRconCommand } from '../../src/main/lib/minecraftRcon'
 import { detectMinecraftLaunchable } from '../../src/main/lib/minecraftDetect'
+import { getMinecraftBackupLog, minecraftBackupEvents, logMinecraftBackup } from '../../src/main/lib/minecraftBackup'
 import { app, shell } from 'electron'
 import { send, resolveRustResponse } from './rpcToRust'
 import type { GameId } from '../../shared/games'
@@ -1271,7 +1272,20 @@ const methods: Record<string, (params: unknown) => unknown> = {
   // Real, unmodified detectMinecraftLaunchable() (lib/minecraftDetect.ts) - backs
   // MinecraftServerDetail/StartSettingsTab.tsx's "Re-detect from install directory" button, a
   // thirtieth real page. Plain fs.readdirSync-based heuristic, no Electron coupling at all.
-  'minecraft.detectLaunchable': (params) => detectMinecraftLaunchable((params as { installDir: string }).installDir)
+  'minecraft.detectLaunchable': (params) => detectMinecraftLaunchable((params as { installDir: string }).installDir),
+  // Real, unmodified getMinecraftBackupLog() (lib/minecraftBackup.ts) - backs
+  // MinecraftServerDetail/BackupLogPanel.tsx, a thirty-first real page. Mirrors the real
+  // ARK backup.getLog/onLogChanged shape already proven (see backupEvents.on('log', ...) below).
+  'minecraft.backup.getLog': (params) => getMinecraftBackupLog((params as { profileId: string }).profileId),
+  // Test-only: calls the real, unmodified logMinecraftBackup() directly (not a simulated line
+  // format the way console.appendTestLine above has to be - this sandbox has no real backup
+  // operation wired up yet, since BackupsTab.tsx/createMinecraftBackup() remain unported, but
+  // the logging function itself needs no server process or disk state to call honestly).
+  'minecraft.backup.appendTestLogLine': (params) => {
+    const { profileId, message, level } = params as { profileId: string; message: string; level?: 'info' | 'error' }
+    logMinecraftBackup(profileId, message, level ?? 'info')
+    return { ok: true }
+  }
 }
 
 let stopConsoleWatch: (() => void) | null = null
@@ -1291,6 +1305,11 @@ minecraftProfileEvents.on('changed', (profiles) => send({ event: 'minecraft-prof
 minecraftServerEvents.on('status', (status) => send({ event: 'minecraft-server-status', data: status }))
 minecraftConsoleEvents.on('line', (profileId: string, line) =>
   send({ event: 'minecraft-console-line', data: { profileId, line } })
+)
+// An eleventh: lib/minecraftBackup.ts's own `minecraftBackupEvents` - the Minecraft-side twin
+// of backupEvents's own 'log' emitter below, same real module-level EventEmitter.on shape.
+minecraftBackupEvents.on('log', (profileId: string, entry) =>
+  send({ event: 'minecraft-backup-log-entry', data: { profileId, entry } })
 )
 managerLogEvents.on('log', (entry) => send({ event: 'manager-log-entry', data: entry }))
 // A third independent push source: serverProcess.ts's own `serverEvents` 'status' emitter -

@@ -1050,6 +1050,26 @@ fn minecraft_detect_launchable(install_dir: String, sidecar: tauri::State<Sideca
     sidecar.call("minecraft.detectLaunchable", Some(serde_json::json!({ "installDir": install_dir })))
 }
 
+/// Backs MinecraftServerDetail/BackupLogPanel.tsx - a thirty-first real page. See sidecar.ts's
+/// own comment: real, unmodified lib/minecraftBackup.ts's getMinecraftBackupLog().
+#[tauri::command]
+fn minecraft_backup_get_log(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.backup.getLog", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+/// Test-only - see sidecar.ts's `minecraft.backup.appendTestLogLine` comment.
+#[tauri::command]
+fn minecraft_backup_append_test_log_line(
+    profile_id: String,
+    message: String,
+    sidecar: tauri::State<SidecarHandle>
+) -> Result<Value, String> {
+    sidecar.call(
+        "minecraft.backup.appendTestLogLine",
+        Some(serde_json::json!({ "profileId": profile_id, "message": message }))
+    )
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -1421,7 +1441,9 @@ fn main() {
             minecraft_server_get_status,
             minecraft_server_send_command,
             minecraft_console_get_backlog,
-            minecraft_detect_launchable
+            minecraft_detect_launchable,
+            minecraft_backup_get_log,
+            minecraft_backup_append_test_log_line
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

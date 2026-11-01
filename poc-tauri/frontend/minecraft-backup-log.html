@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Minecraft Backup Log - real BackupLogPanel.tsx through Tauri</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: #14161a;
+        color: #e6e8ec;
+      }
+      .page {
+        padding: 24px;
+        max-width: 760px;
+      }
+      h1 {
+        font-size: 1.3rem;
+      }
+      h3 {
+        margin: 0 0 8px;
+      }
+      .backup-log-panel {
+        background: #1a1d24;
+        border: 1px solid #2c303a;
+        border-radius: 10px;
+        padding: 14px 16px;
+      }
+      .empty-state {
+        color: #9aa0ab;
+        font-size: 0.9rem;
+      }
+      .backup-log-list {
+        max-height: 320px;
+        overflow-y: auto;
+        background: #0f1115;
+        border: 1px solid #2c303a;
+        border-radius: 6px;
+        padding: 8px 10px;
+        margin-top: 8px;
+      }
+      .backup-log-line {
+        margin: 0 0 4px;
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+        font-size: 0.82rem;
+      }
+      .backup-log-time {
+        color: #7d8494;
+        margin-right: 6px;
+      }
+      .error-message {
+        color: #ff8080;
+      }
+      a {
+        color: #8ab4ff;
+      }
+    </style>
+  </head>
+  <body>
+    <p style="padding: 12px 24px 0"><a href="index.html" style="color: #8ab4ff">&larr; back to the main PoC page</a></p>
+    <div class="page">
+      <h1>Minecraft Backup Log</h1>
+      <div id="root"></div>
+    </div>
+    <script type="module" src="minecraft-backup-log.js"></script>
+  </body>
+</html>
