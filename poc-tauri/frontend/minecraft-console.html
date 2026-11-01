@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Minecraft Console - real ConsoleTab.tsx through Tauri</title>
+    <link rel="stylesheet" href="xterm.css" />
+    <style>
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: #14161a;
+        color: #e6e8ec;
+      }
+      .page {
+        padding: 24px;
+        max-width: 900px;
+      }
+      h1 {
+        font-size: 1.3rem;
+      }
+      input {
+        background: #0f1115;
+        color: #e6e8ec;
+        border: 1px solid #2c303a;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font: inherit;
+      }
+      button {
+        background: #2c303a;
+        color: #e6e8ec;
+        border: 1px solid #3a3f4b;
+        border-radius: 4px;
+        padding: 4px 10px;
+        cursor: pointer;
+        font: inherit;
+      }
+      button:hover {
+        background: #3a3f4b;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      label.checkbox {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.85rem;
+        color: #c9cdd6;
+      }
+      .error-message {
+        color: #ff8080;
+      }
+      .console-tab {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .mc-console-terminal {
+        height: 400px;
+        background: #14161a;
+        border: 1px solid #2c303a;
+        border-radius: 6px;
+        padding: 6px;
+      }
+      .group-console-filters {
+        display: flex;
+        gap: 10px;
+      }
+      .group-console-rcon {
+        display: flex;
+        gap: 8px;
+      }
+      .group-console-rcon input {
+        flex: 1;
+      }
+      a {
+        color: #8ab4ff;
+      }
+    </style>
+  </head>
+  <body>
+    <p style="padding: 12px 24px 0"><a href="index.html" style="color: #8ab4ff">&larr; back to the main PoC page</a></p>
+    <div class="page">
+      <h1>Minecraft Console</h1>
+      <div id="root"></div>
+    </div>
+    <script type="module" src="minecraft-console.js"></script>
+  </body>
+</html>

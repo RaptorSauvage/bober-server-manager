@@ -1019,6 +1019,30 @@ fn minecraft_profiles_delete(id: String, sidecar: tauri::State<SidecarHandle>) -
     sidecar.call("minecraft.profiles.delete", Some(serde_json::json!({ "id": id })))
 }
 
+/// Backs MinecraftServerDetail/ConsoleTab.tsx - a twenty-ninth real page. See sidecar.ts's own
+/// comment: real, unmodified lib/minecraftProcess.ts/minecraftRcon.ts functions.
+#[tauri::command]
+fn minecraft_server_get_status(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.server.getStatus", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+#[tauri::command]
+fn minecraft_server_send_command(
+    profile_id: String,
+    command: String,
+    sidecar: tauri::State<SidecarHandle>,
+) -> Result<Value, String> {
+    sidecar.call(
+        "minecraft.server.sendCommand",
+        Some(serde_json::json!({ "profileId": profile_id, "command": command })),
+    )
+}
+
+#[tauri::command]
+fn minecraft_console_get_backlog(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.console.getBacklog", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -1386,7 +1410,10 @@ fn main() {
             minecraft_install_run,
             minecraft_profiles_list,
             minecraft_profiles_save,
-            minecraft_profiles_delete
+            minecraft_profiles_delete,
+            minecraft_server_get_status,
+            minecraft_server_send_command,
+            minecraft_console_get_backlog
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

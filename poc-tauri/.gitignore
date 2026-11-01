@@ -31,3 +31,4 @@ frontend/server-detail.js
 frontend/data-settings.js
 frontend/install-minecraft.js
 frontend/minecraft-server-management.js
+frontend/minecraft-console.js

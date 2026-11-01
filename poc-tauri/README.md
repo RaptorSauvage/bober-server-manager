@@ -109,7 +109,10 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   `minecraft_install_list_loader_versions`/`minecraft_install_run` - one hundred and
   thirty-three Tauri commands total. The twenty-eighth (see "A twenty-eighth real page" below)
   added `minecraft_profiles_list`/`minecraft_profiles_save`/`minecraft_profiles_delete` - the
-  Minecraft profile CRUD foundation - one hundred and thirty-six Tauri commands total.
+  Minecraft profile CRUD foundation - one hundred and thirty-six Tauri commands total. The
+  twenty-ninth (see "A twenty-ninth real page" below) added `minecraft_server_get_status`/
+  `minecraft_server_send_command`/`minecraft_console_get_backlog` - one hundred and
+  thirty-nine Tauri commands total.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -2165,6 +2168,38 @@ array, not just trusted from the UI. No new bug - the real scheduled-restart log
 shared countdown math, and the real reused `ScheduleDaysPicker` component all matched their ARK-
 side behavior exactly, with zero changes needed for the Minecraft side's own field names.
 
+### A twenty-ninth real page: a real third-party UI library, and a CSS-import build gap
+
+`MinecraftServerDetail/ConsoleTab.tsx` is the Minecraft side's live console - unlike ARK's own
+Group Console (a tailed, parsed log file), it reads straight off the server process's piped
+stdout and renders with `xterm.js` (`@xterm/xterm` + `@xterm/addon-fit`), the same real terminal-
+emulator library Pterodactyl's panel uses, not a React list of `<div>` lines. The first page in
+this PoC to pull in a real third-party UI library rather than plain DOM/CSS, and the first to hit
+a build gap neither `.png`/`.jpg` assets nor any real-code import before it had: the real,
+unmodified component's own `import '@xterm/xterm/css/xterm.css'` line has no equivalent in
+esbuild the way it does in the real app's Vite build (which injects a stylesheet as a module
+side effect automatically) - a plain `esbuild` call fails outright on it, same root cause as the
+`.png`/`.jpg` loader gaps, a third file type this time. Fixed with `loader: { '.css': 'empty' }`
+(makes the import a harmless no-op in the bundled JS) plus the real `xterm.css` file itself
+copied byte-for-byte from `node_modules/@xterm/xterm/css/xterm.css` into
+`frontend/xterm.css` and linked via a plain `<link rel="stylesheet">` in `minecraft-console.html`
+- xterm.js genuinely needs this CSS to lay out correctly (cursor positioning, viewport sizing),
+not just for cosmetics, so discarding it outright the way `'empty'` does for the *import
+statement itself* would have left a visually broken terminal, not just an unstyled one.
+
+**Confirmed through the real compiled app** (no standalone round needed - every real call this
+page makes was already proven by earlier rounds; this one is about the real rendering stack,
+not new backend surface): the real, unmodified `ConsoleTab.tsx` mounted a real `xterm.js`
+terminal instance with the real `xterm.css` applied - confirmed visually, the terminal rendered
+with correct sizing and the real monospace font, not a collapsed or unstyled `<div>` - and
+correctly showed the real honest `"No console output yet - start the server to see it."`
+placeholder (real `getConsoleBacklog()` returning empty, `state === 'stopped'`). The command
+input below it correctly showed `"Server is not running"` and a disabled Send button, matching
+the real component's own `state !== 'running'` gate exactly - confirming the real
+`useMinecraftServerStatuses` hook (shared with every other Minecraft-side page that will need
+live status) round-trips through the full Rust+sidecar pipeline too, not just standalone. No new
+bug - the only genuinely new thing this round found was a build-tooling gap, not a logic one.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2633,9 +2668,15 @@ side behavior exactly, with zero changes needed for the Minecraft side's own fie
   restart write-through both confirmed, including a direct `config.json` read of the resulting
   Minecraft profile. Still unconfirmed: `startOnManagerLaunch`'s actual effect (needs a real
   Manager startup sequence this PoC's sidecar-per-standalone-process model doesn't have), and
-  the rest of `MinecraftServerDetail/` (`BackupLogPanel.tsx`, `BackupsTab.tsx`, `ConsoleTab.tsx`,
-  `ModsTab.tsx`, `ServerSettingsTab.tsx`, `StartSettingsTab.tsx`, `index.tsx`) and
-  `MinecraftDashboard.tsx`.
+  the rest of `MinecraftServerDetail/` (`BackupLogPanel.tsx`, `BackupsTab.tsx`, `ModsTab.tsx`,
+  `ServerSettingsTab.tsx`, `StartSettingsTab.tsx`, `index.tsx`) and `MinecraftDashboard.tsx`.
+- **~~Nothing about the Minecraft live console, or a real third-party UI library like xterm.js~~
+  - proven, a twenty-ninth real page.** See "A twenty-ninth real page" above: the real,
+  unmodified `xterm.js` terminal rendered correctly with its real CSS, and the real honest
+  "server not running" placeholder/disabled-input state matched the component's own logic
+  exactly. Still unconfirmed: what a real live console feed (actual game-server stdout lines)
+  looks like rendered through `xterm.js` - needs a real running Minecraft server process, the
+  same category of gap as ARK's own live-console round before its stand-in script existed.
 
 ## Where the real Electron coupling lives
 

@@ -38,7 +38,8 @@ const pages = [
   'server-detail',
   'data-settings',
   'install-minecraft',
-  'minecraft-server-management'
+  'minecraft-server-management',
+  'minecraft-console'
 ]
 
 for (const page of pages) {
@@ -59,7 +60,16 @@ for (const page of pages) {
     // icon as a base64 data URI right into this page's own bundled .js - keeps every page a
     // single self-contained file, matching how every other page here is already served, rather
     // than introducing a second kind of build output (loose files) just for this one page.
-    loader: { '.png': 'dataurl', '.jpg': 'dataurl' },
+    // ConsoleTab.tsx (Minecraft) imports '@xterm/xterm/css/xterm.css' directly, real and
+    // unmodified - esbuild has no CSS-import-as-side-effect story the way the real app's Vite
+    // build does, so this import needs a loader too (same root cause as the .png/.jpg ones
+    // above, a different file type). 'empty' makes the import a no-op in the bundled JS; the
+    // real xterm.css content itself is served separately, copied byte-for-byte from
+    // node_modules into frontend/xterm.css and linked via a plain <link> tag in
+    // minecraft-console.html - xterm.js needs its real CSS to lay out correctly (not just
+    // cosmetic), so discarding it outright isn't an option the way it might be for a PoC that
+    // genuinely didn't care how an import looked.
+    loader: { '.png': 'dataurl', '.jpg': 'dataurl', '.css': 'empty' },
     logLevel: 'info'
   })
   console.log(`React page bundled -> ${page}.js`)

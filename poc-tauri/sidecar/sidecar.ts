@@ -164,6 +164,8 @@ import {
   listInstallableLoaderVersions,
   installMinecraftServerFiles
 } from '../../src/main/lib/minecraftInstall'
+import { getStatus as getMinecraftStatus, minecraftServerEvents, sendStdinCommand, getConsoleBacklog, minecraftConsoleEvents } from '../../src/main/lib/minecraftProcess'
+import { sendMinecraftRconCommand } from '../../src/main/lib/minecraftRcon'
 import { app, shell } from 'electron'
 import { send, resolveRustResponse } from './rpcToRust'
 import type { GameId } from '../../shared/games'
@@ -1249,7 +1251,22 @@ const methods: Record<string, (params: unknown) => unknown> = {
   'minecraft.profiles.get': (params) => {
     const { id } = params as { id: string }
     return getMinecraftProfile(id) ?? null
-  }
+  },
+  // Real, unmodified getStatus()/getConsoleBacklog() (lib/minecraftProcess.ts) backing
+  // MinecraftServerDetail/ConsoleTab.tsx - a twenty-ninth real page. sendCommand mirrors the
+  // real ipc/minecraft.ts handler's own fallback exactly: sendStdinCommand first (a live
+  // process's stdin), then real RCON (sendMinecraftRconCommand) if there's no live stdin to
+  // write to - the same "no real server process in this sandbox" honest gap every ARK
+  // RCON-dependent call already has, not a new shape.
+  'minecraft.server.getStatus': (params) => getMinecraftStatus((params as { profileId: string }).profileId),
+  'minecraft.server.sendCommand': async (params) => {
+    const { profileId, command } = params as { profileId: string; command: string }
+    if (sendStdinCommand(profileId, command)) return { ok: true }
+    const profile = getMinecraftProfile(profileId)
+    if (!profile) return { ok: false, error: `Unknown Minecraft profile: ${profileId}` }
+    return sendMinecraftRconCommand(profile.installDir, command)
+  },
+  'minecraft.console.getBacklog': (params) => getConsoleBacklog((params as { profileId: string }).profileId)
 }
 
 let stopConsoleWatch: (() => void) | null = null
@@ -1263,6 +1280,13 @@ profileEvents.on('changed', (profiles) => send({ event: 'profiles-changed', data
 // An eighth: store.ts's own `minecraftProfileEvents` - the Minecraft-side twin of
 // `profileEvents` above, same real EventEmitter.on module-level subscription shape.
 minecraftProfileEvents.on('changed', (profiles) => send({ event: 'minecraft-profiles-changed', data: profiles }))
+// A ninth and tenth: lib/minecraftProcess.ts's own `minecraftServerEvents`/
+// `minecraftConsoleEvents` - the Minecraft-side twins of serverEvents/console-line above, same
+// real module-level EventEmitter.on subscription shape.
+minecraftServerEvents.on('status', (status) => send({ event: 'minecraft-server-status', data: status }))
+minecraftConsoleEvents.on('line', (profileId: string, line) =>
+  send({ event: 'minecraft-console-line', data: { profileId, line } })
+)
 managerLogEvents.on('log', (entry) => send({ event: 'manager-log-entry', data: entry }))
 // A third independent push source: serverProcess.ts's own `serverEvents` 'status' emitter -
 // the one every server card/detail page in the real app subscribes to for live state
