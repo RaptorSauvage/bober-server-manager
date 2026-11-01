@@ -141,9 +141,15 @@ import {
   applyScheduledRconCommands,
   applyScheduledMaintenance
 } from '../../src/main/lib/scheduledActions'
-import { applyMinecraftScheduledRestart } from '../../src/main/lib/minecraftScheduledActions'
-import { applyMinecraftBackupSchedule } from '../../src/main/lib/minecraftBackupSchedule'
-import { listMinecraftProfiles, saveMinecraftProfile } from '../../src/main/store'
+import { applyMinecraftScheduledRestart, clearMinecraftScheduledRestart } from '../../src/main/lib/minecraftScheduledActions'
+import { applyMinecraftBackupSchedule, clearMinecraftBackupSchedule } from '../../src/main/lib/minecraftBackupSchedule'
+import {
+  listMinecraftProfiles,
+  saveMinecraftProfile,
+  getMinecraftProfile,
+  deleteMinecraftProfile,
+  minecraftProfileEvents
+} from '../../src/main/store'
 import {
   listWebDashboardAccessTokens,
   saveWebDashboardAccessToken,
@@ -162,6 +168,7 @@ import { app, shell } from 'electron'
 import { send, resolveRustResponse } from './rpcToRust'
 import type { GameId } from '../../shared/games'
 import type { MinecraftInstallableType, MinecraftInstallParams } from '../../shared/minecraftInstall'
+import type { MinecraftProfile } from '../../shared/minecraft'
 import type {
   AppSettings,
   IniTemplateContent,
@@ -1218,7 +1225,31 @@ const methods: Record<string, (params: unknown) => unknown> = {
     }
     return listInstallableLoaderVersions(serverType, minecraftVersion)
   },
-  'minecraft.install.run': (params) => installMinecraftServerFiles(params as MinecraftInstallParams)
+  'minecraft.install.run': (params) => installMinecraftServerFiles(params as MinecraftInstallParams),
+  // Real, unmodified ipc/minecraft.ts handler bodies - listMinecraftProfiles/saveMinecraftProfile
+  // (already proven as part of "A twenty-sixth real page"'s cluster.import, new direct call
+  // sites here) plus getMinecraftProfile/deleteMinecraftProfile and the real
+  // clearMinecraftScheduledRestart/clearMinecraftBackupSchedule pair - the Minecraft profile
+  // CRUD foundation every future Minecraft-side round reuses, same role profiles.list/.save/
+  // .delete already play on the ARK side.
+  'minecraft.profiles.list': () => listMinecraftProfiles(),
+  'minecraft.profiles.save': (params) => {
+    const profile = params as MinecraftProfile
+    const profiles = saveMinecraftProfile(profile)
+    applyMinecraftScheduledRestart(profile)
+    applyMinecraftBackupSchedule(profile)
+    return profiles
+  },
+  'minecraft.profiles.delete': (params) => {
+    const { id } = params as { id: string }
+    clearMinecraftScheduledRestart(id)
+    clearMinecraftBackupSchedule(id)
+    return deleteMinecraftProfile(id)
+  },
+  'minecraft.profiles.get': (params) => {
+    const { id } = params as { id: string }
+    return getMinecraftProfile(id) ?? null
+  }
 }
 
 let stopConsoleWatch: (() => void) | null = null
@@ -1229,6 +1260,9 @@ let stopGroupConsoleWatch: (() => void) | null = null
 // changed' here, not 'profiles.changed' matching the RPC method naming below. Same for
 // 'manager-log-entry' vs. the real app's own 'log' event name on managerLogEvents.
 profileEvents.on('changed', (profiles) => send({ event: 'profiles-changed', data: profiles }))
+// An eighth: store.ts's own `minecraftProfileEvents` - the Minecraft-side twin of
+// `profileEvents` above, same real EventEmitter.on module-level subscription shape.
+minecraftProfileEvents.on('changed', (profiles) => send({ event: 'minecraft-profiles-changed', data: profiles }))
 managerLogEvents.on('log', (entry) => send({ event: 'manager-log-entry', data: entry }))
 // A third independent push source: serverProcess.ts's own `serverEvents` 'status' emitter -
 // the one every server card/detail page in the real app subscribes to for live state

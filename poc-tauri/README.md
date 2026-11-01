@@ -107,7 +107,9 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   a sixth and seventh) - one hundred and thirty Tauri commands total. The twenty-seventh (see
   "A twenty-seventh real page" below) added `minecraft_install_list_versions`/
   `minecraft_install_list_loader_versions`/`minecraft_install_run` - one hundred and
-  thirty-three Tauri commands total.
+  thirty-three Tauri commands total. The twenty-eighth (see "A twenty-eighth real page" below)
+  added `minecraft_profiles_list`/`minecraft_profiles_save`/`minecraft_profiles_delete` - the
+  Minecraft profile CRUD foundation - one hundred and thirty-six Tauri commands total.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -2132,6 +2134,37 @@ before any real I/O, exactly as a real offline user would experience it. No new 
 validation logic, the real per-type UI branching, and the real honest network failure all
 matched their own standalone predictions.
 
+### A twenty-eighth real page: the first real Minecraft profile this PoC has ever had
+
+`MinecraftServerDetail/ServerManagementTab.tsx` is the Minecraft side's own startup/scheduled-
+restart settings tab - picked specifically because it's small (86 lines) and reuses the already-
+proven `ServerDetail/ScheduleDaysPicker.tsx` component unchanged, which let this round focus on
+standing up something every later Minecraft-side round will need: the Minecraft profile CRUD
+foundation itself (`minecraft.profiles.list`/`.save`/`.delete`, plus a `minecraft-profiles-
+changed` push event mirroring `profiles-changed`'s own shape). This sandbox has never had a real
+Minecraft profile before this round (`minecraftProfiles: 0` confirmed directly in `config.json`
+after every earlier round that touched the Minecraft store only in passing - "A twenty-sixth
+real page"'s `cluster.import`). `ipc/minecraft.ts`'s own `minecraftProfilesSave` handler calls
+the exact same `applyMinecraftScheduledRestart`/`applyMinecraftBackupSchedule` pair already
+imported for that round's `cluster.import` - new direct call sites, not a new mechanism.
+
+**Confirmed standalone first**: a real `minecraft.profiles.save` round-trip (create, update with
+`scheduledRestartEnabled: true`, delete) fired a real `minecraft-profiles-changed` push event at
+each step and left the sandbox back at zero Minecraft profiles afterward.
+
+**Confirmed through the real compiled app**: a thin wrapper entry seeded one real Minecraft
+profile via the real, unmodified `createDefaultMinecraftProfile()` (`lib/minecraftProfile.ts`)
+plus a real `minecraft.profiles.save` call, then mounted the real `ServerManagementTab.tsx`
+against it - the first page in this PoC's history where a Minecraft profile, not an ARK one, is
+what's being edited. Enabling the scheduled-restart checkbox, picking Monday, and leaving the
+default time correctly started the real live countdown (`computeNextOccurrence`/
+`formatCountdown`, both real, unmodified, from `shared/scheduleTime.ts`) ticking down to the
+real next Monday midnight, and the resulting write - `scheduledRestartEnabled: true`,
+`scheduledRestartDays: [1]` - was confirmed directly in `config.json`'s `minecraftProfiles`
+array, not just trusted from the UI. No new bug - the real scheduled-restart logic, the real
+shared countdown math, and the real reused `ScheduleDaysPicker` component all matched their ARK-
+side behavior exactly, with zero changes needed for the Minecraft side's own field names.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2592,8 +2625,17 @@ matched their own standalone predictions.
   their own dev environment. Still entirely unconfirmed: the actual download/build result for
   any of the seven server types (needs real network access this sandbox has never had, the
   same category of gap as SteamCMD's own install path), and the entire rest of the Minecraft
-  subsystem (`MinecraftDashboard.tsx` and all eight `MinecraftServerDetail/*.tsx` files remain
-  completely unported - 0%).
+  subsystem (`MinecraftDashboard.tsx` and the other seven `MinecraftServerDetail/*.tsx` files
+  remain completely unported).
+- **~~Nothing about a real Minecraft profile actually existing, or the Minecraft-side scheduled
+  restart logic~~ - proven, a twenty-eighth real page.** See "A twenty-eighth real page" above:
+  the Minecraft profile CRUD foundation (list/save/delete + push event) and the real scheduled-
+  restart write-through both confirmed, including a direct `config.json` read of the resulting
+  Minecraft profile. Still unconfirmed: `startOnManagerLaunch`'s actual effect (needs a real
+  Manager startup sequence this PoC's sidecar-per-standalone-process model doesn't have), and
+  the rest of `MinecraftServerDetail/` (`BackupLogPanel.tsx`, `BackupsTab.tsx`, `ConsoleTab.tsx`,
+  `ModsTab.tsx`, `ServerSettingsTab.tsx`, `StartSettingsTab.tsx`, `index.tsx`) and
+  `MinecraftDashboard.tsx`.
 
 ## Where the real Electron coupling lives
 

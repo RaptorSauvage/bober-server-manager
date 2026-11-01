@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Minecraft Server Management - real ServerManagementTab.tsx through Tauri</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: #14161a;
+        color: #e6e8ec;
+      }
+      .page {
+        padding: 24px;
+        max-width: 1000px;
+      }
+      h1 {
+        font-size: 1.3rem;
+      }
+      h3 {
+        margin: 0;
+        color: #4f8cff;
+      }
+      h4 {
+        margin: 0;
+        font-size: 0.9rem;
+      }
+      p {
+        color: #c9cdd6;
+        font-size: 0.9rem;
+      }
+      input {
+        background: #0f1115;
+        color: #e6e8ec;
+        border: 1px solid #2c303a;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font: inherit;
+      }
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 0.85rem;
+        color: #c9cdd6;
+      }
+      label.checkbox {
+        flex-direction: row;
+        align-items: center;
+        gap: 6px;
+      }
+      .empty-state {
+        color: #9aa0ab;
+      }
+      .error-message {
+        color: #ff8080;
+      }
+      .server-management-tab {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 20px;
+      }
+      .server-management-tab > .schedule-section {
+        flex: 1 1 380px;
+        max-width: 480px;
+      }
+      .server-management-tab > .error-message,
+      .server-management-tab > .empty-state {
+        flex: 1 1 100%;
+        max-width: none;
+      }
+      .schedule-section {
+        background: #1a1d24;
+        border: 1px solid #2c303a;
+        border-radius: 10px;
+        padding: 14px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .schedule-subsection {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .schedule-subsection + .schedule-subsection {
+        border-top: 1px solid #2c303a;
+        padding-top: 10px;
+      }
+      .schedule-picker {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .schedule-picker-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+      }
+      .schedule-days-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 10px;
+      }
+      .schedule-day {
+        flex-direction: row;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
+      }
+      .schedule-suboptions {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding-left: 20px;
+      }
+      .schedule-countdown {
+        margin: 0;
+        color: #3fbf6f;
+        font-weight: 600;
+      }
+      a {
+        color: #8ab4ff;
+      }
+    </style>
+  </head>
+  <body>
+    <p style="padding: 12px 24px 0"><a href="index.html" style="color: #8ab4ff">&larr; back to the main PoC page</a></p>
+    <div class="page">
+      <h1>Minecraft Server Management</h1>
+      <div id="root"></div>
+    </div>
+    <script type="module" src="minecraft-server-management.js"></script>
+  </body>
+</html>

@@ -37,7 +37,8 @@ const pages = [
   'settings',
   'server-detail',
   'data-settings',
-  'install-minecraft'
+  'install-minecraft',
+  'minecraft-server-management'
 ]
 
 for (const page of pages) {

@@ -1000,6 +1000,25 @@ fn minecraft_install_run(params: Value, sidecar: tauri::State<SidecarHandle>) ->
     sidecar.call("minecraft.install.run", Some(params))
 }
 
+/// Backs MinecraftServerDetail/ServerManagementTab.tsx - a twenty-eighth real page, and the
+/// Minecraft profile CRUD foundation (list/save/delete) every future Minecraft-side round
+/// reuses. See sidecar.ts's own comment: real, unmodified store.ts/minecraftScheduledActions.ts/
+/// minecraftBackupSchedule.ts functions.
+#[tauri::command]
+fn minecraft_profiles_list(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.profiles.list", None)
+}
+
+#[tauri::command]
+fn minecraft_profiles_save(profile: Value, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.profiles.save", Some(profile))
+}
+
+#[tauri::command]
+fn minecraft_profiles_delete(id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.profiles.delete", Some(serde_json::json!({ "id": id })))
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -1364,7 +1383,10 @@ fn main() {
             web_dashboard_api_keys_delete,
             minecraft_install_list_versions,
             minecraft_install_list_loader_versions,
-            minecraft_install_run
+            minecraft_install_run,
+            minecraft_profiles_list,
+            minecraft_profiles_save,
+            minecraft_profiles_delete
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
