@@ -34,7 +34,8 @@ const pages = [
   'ini-templates',
   'files',
   'mods',
-  'settings'
+  'settings',
+  'server-detail'
 ]
 
 for (const page of pages) {

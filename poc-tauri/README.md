@@ -95,7 +95,9 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   `mods_reconcile_from_ini`/`ark_mods_search`/`ark_mods_info`. The twenty-fourth (see "A
   twenty-fourth real page" below) added `dialog_save_profile_file` (a fifth sidecar-free
   command) and `server_preview_launch_command`/`system_open_data_dir_folder`/`profiles_export`
-  - one hundred and eight Tauri commands total.
+  - one hundred and eight Tauri commands total. The twenty-fifth (see "A twenty-fifth real
+  page" below) added none at all - a pure frontend composition of eight already-proven pages,
+  same shape as the eighteenth round.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -1987,6 +1989,33 @@ ported logic itself - every real call site that could be confirmed (the preview,
 openDataDirFolder push event) matched its own standalone prediction exactly; only the native
 dialog's own happy path remains unconfirmed, same class of gap as every other picker in this PoC.
 
+### A twenty-fifth real page: the tab shell itself, zero new backend
+
+`ServerDetail/index.tsx` is the ARK detail page's own left-nav tab shell - the piece every one of
+this PoC's per-tab rounds (Analytics, Mods, Backups, Settings, Server Management, Map Management,
+Update Log, Files) has been standing in for with its own dedicated entry file and URL override so
+far. Picked specifically because it's a pure composition: the real, unmodified component just
+holds a `tab` state and mounts one of eight already-proven real child components, each already
+individually confirmed down to the real RPC call - so this round's own `window.api` is the exact
+union of all eight earlier entry files' surfaces, with zero new sidecar RPC methods or Rust
+commands. `frontend/server-detail.html`'s stylesheet is itself a merge of all eight tabs' own
+`<style>` blocks (deduplicated by selector, last-definition-wins, 115 unique rules from an
+original 8×~100-line spread) plus the real shell CSS (`.settings-nav`/`.settings-content`/...)
+copied from `src/renderer/src/styles.css` with its `var(--bg)`/`var(--panel)`/etc. custom
+properties translated to the same literal hex values this PoC's merged stylesheet already uses
+for them (confirmed identical by reading the real `:root` block directly, not assumed).
+
+**Confirmed through the real compiled app** (no standalone round needed - there's no new RPC
+surface to test in isolation): the real, unmodified shell rendered its left nav with the correct
+three real groups (Overview/Configuration/Maintenance/Files) and all eight real tab buttons: the
+default Analytics tab mounted correctly, and clicking through Settings, Mods, Map Management,
+Backups, Update Log, Server Management, and Files each correctly unmounted the previous real tab
+component and mounted the next, every one rendering its own real seeded data exactly as its own
+earlier round already proved standalone - the merged stylesheet held up across all eight without
+a single unstyled or misrendered element. No new bug - the real tab-switching logic itself needed
+no changes, and every already-proven `window.api` method remained reachable, unchanged, from
+inside the composed shell.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2421,6 +2450,13 @@ dialog's own happy path remains unconfirmed, same class of gap as every other pi
   .openDataDirFolder`'s real OS-level "open in file manager" result (same already-accepted gap
   as every other `shell.openPath` call site - this sandbox has no desktop session to observe it
   opening in).
+- **~~Nothing about the real tab-switching shell that ties every per-server tab together~~ -
+  proven, a twenty-fifth real page.** See "A twenty-fifth real page" above:
+  `ServerDetail/index.tsx`'s real nav correctly mounted/unmounted all eight already-proven real
+  tabs in the full compiled app, with zero new backend surface needed. Still unconfirmed:
+  `AnalyticsTab`'s/`BackupsTab`'s own live server-status push updates and the native
+  dialogs reachable from inside the composed shell (same already-documented gaps as their own
+  standalone rounds, not new ones introduced by composing them).
 
 ## Where the real Electron coupling lives
 
