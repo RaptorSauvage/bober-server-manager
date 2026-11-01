@@ -27,7 +27,8 @@ const pages = [
   'player-bans',
   'cluster-data',
   'steamcmd',
-  'groupconsole'
+  'groupconsole',
+  'players'
 ]
 
 for (const page of pages) {

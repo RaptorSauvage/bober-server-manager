@@ -20,3 +20,4 @@ frontend/player-bans.js
 frontend/cluster-data.js
 frontend/steamcmd.js
 frontend/groupconsole.js
+frontend/players.js

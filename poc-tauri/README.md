@@ -78,7 +78,8 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   with no sidecar involvement, a sibling of `dialog_select_directory`), `steamcmd_managed_status`,
   `steamcmd_install`, and `steamcmd_add_firewall_rule`. The seventeenth (see "A seventeenth real
   page" below) added `group_console_subscribe`/`group_console_unsubscribe` (`group_console_rcon_send`
-  already existed, see "A tenth real page" above).
+  already existed, see "A tenth real page" above). The eighteenth (see "An eighteenth real page"
+  below) added none at all - a pure frontend composition of four already-proven pages.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -1705,6 +1706,29 @@ new bug this round - every real call site reused an already-proven real subsyste
 pattern; the only genuinely new code was the per-profile event multiplexing itself, which worked
 correctly on the first real run.
 
+### An eighteenth real page: zero new real code, proving real tab-switching composes already-proven pages
+
+`PlayersView.tsx` (`src/renderer/src/pages/`, 59 lines) merges four already-fully-proven real
+pages - `PlayerRosterPanel.tsx` ("A third real page"), `PlayerBansPanel.tsx` ("A fourteenth real
+page"), `PlayerWhitelistPanel.tsx` ("A fourth real page"), `PlayerActivityPanel.tsx` ("A twelfth
+real page") - behind one sidebar-tabbed screen. Picked specifically because it needed **no new
+sidecar RPC method and no new Rust command at all** - the first page in this whole PoC where
+that's true - `groupconsole-entry.tsx`'s own `window.api` is simply the union of all four
+already-ported pages' own entry files, unchanged. The only thing actually new to prove is whether
+real client-side tab-switching (mounting/unmounting a different real child component on each
+click, not just one page in isolation) behaves correctly against this architecture.
+
+**Confirmed through the real compiled app** (no standalone round needed, nothing new at the RPC
+layer to test in isolation): pointed the main window at `players.html` and screenshotted under
+Xvfb - the real, unmodified form rendered the real "Live Players" tab by default with all three
+real seeded profiles (including the real collapsible "PoC Group" `<details>` section
+`PlayerRosterPanel.tsx` already drew in "A third real page"). Clicking through Bans, Whitelist,
+and Activity in turn correctly mounted each real child fresh each time - the real cross-server ban
+picker, the real tracking-only whitelist form, and the real honest "no activity recorded yet -
+enable ... in Settings" empty state, each exactly matching that page's own already-proven
+standalone screenshot. No new bug - this round existed specifically to prove composition, not new
+real-code surface, and found nothing wrong with it.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2042,6 +2066,15 @@ correctly on the first real run.
   real OS process, a real live status badge transition, and the component's own real
   status-transition-to-log-line synthesis firing correctly on a real push. No new bug found -
   every real call site this page needed had already been proven by an earlier round.
+- **~~Nothing about real tab-switching composing several already-proven pages into one
+  screen~~ - proven, an eighteenth real page, the first needing zero new real code anywhere.**
+  See "An eighteenth real page" above: `PlayersView.tsx` merges `PlayerRosterPanel.tsx`/
+  `PlayerBansPanel.tsx`/`PlayerWhitelistPanel.tsx`/`PlayerActivityPanel.tsx` behind one sidebar,
+  and needed no new sidecar RPC method or Rust command at all - just the union of four already-
+  proven `window.api` surfaces. Confirmed through the real compiled app: all four tabs correctly
+  mounted their real child fresh on each click, each matching that page's own earlier standalone
+  screenshot exactly. No new bug - this round tested composition itself, not new real-code
+  surface.
 
 ## Where the real Electron coupling lives
 

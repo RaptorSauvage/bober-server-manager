@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Players - real PlayersView.tsx through Tauri</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: #14161a;
+        color: #e6e8ec;
+      }
+      .page {
+        padding: 24px;
+        max-width: 1200px;
+      }
+      .server-detail-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      h1 {
+        font-size: 1.3rem;
+        margin: 0;
+      }
+      h3 {
+        margin-top: 0;
+      }
+      h4 {
+        margin: 0 0 6px;
+        color: #9aa0ab;
+        font-size: 0.85rem;
+        font-weight: normal;
+      }
+      .players-view-body {
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+      }
+      .players-view-sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        width: 160px;
+        flex-shrink: 0;
+      }
+      .players-view-sidebar button {
+        text-align: left;
+      }
+      .players-view-sidebar button.active {
+        background: #3a5f8a;
+        border-color: #4a7fc0;
+      }
+      .players-view-content {
+        flex: 1;
+        min-width: 0;
+      }
+      .cluster-section {
+        border: 1px solid #2c303a;
+        border-radius: 6px;
+        padding: 14px 16px;
+        margin-bottom: 16px;
+        background: #1a1d24;
+      }
+      .player-roster-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .player-roster-count {
+        color: #9aa0ab;
+        font-weight: normal;
+      }
+      input {
+        background: #0f1115;
+        color: #e6e8ec;
+        border: 1px solid #2c303a;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font: inherit;
+        margin-right: 8px;
+      }
+      button {
+        background: #2c303a;
+        color: #e6e8ec;
+        border: 1px solid #3a3f4b;
+        border-radius: 4px;
+        padding: 4px 10px;
+        cursor: pointer;
+        font: inherit;
+      }
+      button:hover {
+        background: #3a3f4b;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      button.btn-delete-backup {
+        border-color: #7a3a3a;
+      }
+      .form-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        flex-wrap: wrap;
+      }
+      .ban-picker-columns {
+        display: flex;
+        gap: 20px;
+        margin-bottom: 10px;
+      }
+      .ban-picker-option {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      label.checkbox {
+        display: block;
+        margin-bottom: 4px;
+      }
+      table,
+      .data-table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      th,
+      td,
+      .data-table th,
+      .data-table td {
+        text-align: left;
+        padding: 6px 8px;
+        border-bottom: 1px solid #2c303a;
+      }
+      details.server-group {
+        margin-bottom: 16px;
+      }
+      summary {
+        cursor: pointer;
+        color: #c9cdd6;
+        margin-bottom: 8px;
+      }
+      .empty-state {
+        color: #9aa0ab;
+      }
+      .error-message {
+        color: #ff8080;
+      }
+      a {
+        color: #8ab4ff;
+      }
+    </style>
+  </head>
+  <body>
+    <p style="padding: 12px 24px 0"><a href="index.html">&larr; back to the main PoC page</a></p>
+    <div class="page">
+      <div id="root"></div>
+    </div>
+    <script type="module" src="players.js"></script>
+  </body>
+</html>
