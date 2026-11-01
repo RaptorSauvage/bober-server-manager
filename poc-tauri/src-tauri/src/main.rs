@@ -637,6 +637,33 @@ fn mod_events_history(sidecar: tauri::State<SidecarHandle>) -> Result<Value, Str
     sidecar.call("modEvents.history", None)
 }
 
+/// Backs MapManagerView.tsx - a twentieth real page. See sidecar.ts's own comment: real,
+/// unmodified listMaps()/listCustomMaps()/addCustomMap()/updateCustomMap()/deleteCustomMap().
+#[tauri::command]
+fn maps_list(game: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("maps.list", Some(serde_json::json!({ "game": game })))
+}
+
+#[tauri::command]
+fn custom_maps_list(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("customMaps.list", None)
+}
+
+#[tauri::command]
+fn custom_maps_add(entry: Value, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("customMaps.add", Some(entry))
+}
+
+#[tauri::command]
+fn custom_maps_update(original_id: String, entry: Value, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("customMaps.update", Some(serde_json::json!({ "originalId": original_id, "entry": entry })))
+}
+
+#[tauri::command]
+fn custom_maps_delete(id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("customMaps.delete", Some(serde_json::json!({ "id": id })))
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -946,7 +973,12 @@ fn main() {
             mod_events_list,
             mod_events_save,
             mod_events_delete,
-            mod_events_history
+            mod_events_history,
+            maps_list,
+            custom_maps_list,
+            custom_maps_add,
+            custom_maps_update,
+            custom_maps_delete
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -91,6 +91,8 @@ import {
 import { listPlayerBackupFolders, listPlayerBackups, openPlayerBackupFolder } from '../../src/main/lib/playerBackup'
 import { getSettings, saveSettings, listModEvents, saveModEvent, deleteModEvent, listModEventHistory } from '../../src/main/store'
 import { armModEvent, disarmModEvent, armAllModEvents } from '../../src/main/lib/modEvents'
+import { listMaps } from '../../src/main/lib/maps'
+import { listCustomMaps, addCustomMap, updateCustomMap, deleteCustomMap } from '../../src/main/lib/customMaps'
 import { send, resolveRustResponse } from './rpcToRust'
 import type { GameId } from '../../shared/games'
 import type { AppSettings, ModEvent, ServerProfile } from '../../shared/types'
@@ -728,7 +730,23 @@ const methods: Record<string, (params: unknown) => unknown> = {
     disarmModEvent(id)
     return deleteModEvent(id)
   },
-  'modEvents.history': () => listModEventHistory()
+  'modEvents.history': () => listModEventHistory(),
+  // A twentieth real page: MapManagerView.tsx. Real, unmodified listMaps() (lib/maps.ts, reads
+  // the shipped per-game maps.json) and listCustomMaps/addCustomMap/updateCustomMap/
+  // deleteCustomMap (lib/customMaps.ts, reads/writes a real customMaps.json in the real data
+  // dir) - a different real file-backed subsystem from every store.ts-based one this PoC has
+  // ported so far, proving getDataDir()'s own JSON-list read/write helpers (jsonListFile.ts)
+  // port with zero Electron coupling too. No push event - same no-live-update shape as
+  // "A ninth real page" (MapManagementTab) and "A nineteenth real page" (EventSchedulerView)
+  // already proved doesn't need one.
+  'maps.list': (params) => listMaps((params as { game: GameId }).game),
+  'customMaps.list': () => listCustomMaps(),
+  'customMaps.add': (params) => addCustomMap(params as { id: string; displayName: string; modId?: string }),
+  'customMaps.update': (params) => {
+    const { originalId, entry } = params as { originalId: string; entry: { id: string; displayName: string; modId?: string } }
+    return updateCustomMap(originalId, entry)
+  },
+  'customMaps.delete': (params) => deleteCustomMap((params as { id: string }).id)
 }
 
 let stopConsoleWatch: (() => void) | null = null

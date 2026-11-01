@@ -38,7 +38,7 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   packaging" below. `src/main.rs` keeps a background async task reading the sidecar's stdout
   that routes each line either to the pending `call()` it answers (has an `"id"`), a
   `"shell-request"` (the sidecar calling back into Rust - see "The reverse direction" below), or
-  out to the webview as an ordinary Tauri event (any other `"event"`), and exposes seventy-eight
+  out to the webview as an ordinary Tauri event (any other `"event"`), and exposes eighty-three
   Tauri commands: `profiles_list`, `profiles_save` (takes a profile object), `profiles_copy`/
   `profiles_move` (take `profileId`/`destInstallDir`/`newName` - see "A second real page" below),
   `log_record` (takes a message string), `manager_log_get_all` (see "A real React page" below),
@@ -81,7 +81,9 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   already existed, see "A tenth real page" above). The eighteenth (see "An eighteenth real page"
   below) added none at all - a pure frontend composition of four already-proven pages. The
   nineteenth (see "A nineteenth real page" below) added `mod_events_list`/`mod_events_save`/
-  `mod_events_delete`/`mod_events_history`.
+  `mod_events_delete`/`mod_events_history`. The twentieth (see "A twentieth real page" below)
+  added `maps_list`, `custom_maps_list`/`custom_maps_add`/`custom_maps_update`/
+  `custom_maps_delete`.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -1778,6 +1780,42 @@ config file instead, the same way the mod-list cleanup was. No new bug this roun
 genuinely worth finding (immediate reconciliation on save) is real, documented component/library
 behavior working exactly as designed, not a defect.
 
+### A twentieth real page: a different real file-backed subsystem, and the clearest confirmation yet of where data actually lands
+
+`MapManagerView.tsx` (`src/renderer/src/pages/`) lists every official map (read-only, shipped
+`maps.json`, one per game, merged into one row per map across ARK: Survival Ascended and Evolved)
+alongside a fully editable custom/modded map database (`customMaps.json`). Picked specifically
+because it's a different real file-backed subsystem from every one of the (many) `store.ts`-backed
+ones this PoC has ported so far - `lib/maps.ts`'s `listMaps()` and `lib/customMaps.ts`'s
+`listCustomMaps`/`addCustomMap`/`updateCustomMap`/`deleteCustomMap` go through
+`jsonListFile.ts`'s own read/parse/write helpers and `getDataDir()`, not `electron-store`/`conf` -
+proving that second real persistence path ports with zero Electron coupling too, not just the
+first. Reuses the `wizard-overlay`/`wizard-modal` CSS "A nineteenth real page" introduced, and the
+`map-manager-table` class this PoC's own `MapManagementTab.tsx` port had already named (a
+coincidence of the real app's own CSS, not shared markup - the two features aren't related).
+
+**Confirmed standalone first**: `maps.list` returned the real shipped map list for each game (14
+ASA maps, 12 ASE maps, real ids like `TheIsland_WP`/`TheIsland`), and a full
+add → update → delete cycle against `customMaps.list` round-tripped correctly with no manual
+cleanup needed afterward (unlike the last two rounds) - `deleteCustomMap`'s own real behavior
+already leaves nothing behind.
+
+**Confirmed through the real compiled app**, and this time deliberately pushed further than a
+standalone call alone would show: the real, unmodified page correctly rendered and merged all 15
+official map rows (`Valguero` and `Astraeos` each correctly showing a real `-` for the game that
+doesn't have them) ahead of a real empty custom-maps state. Clicking "+ Add Map", filling the real
+modal, and saving produced a real new row on screen - and, checked directly on disk, a real write
+to `customMaps.json`. That file's real location (found by searching the filesystem, not assumed)
+turned out to be `~/Documents/ARK Server Manager/customMaps.json` - confirming, independently and
+for a second real subsystem, the exact same `getDataDir()` → `app.getPath('documents')` path this
+PoC's own "Findings" section already documented for `lib/managerLog.ts` going through
+`electronShim.ts` correctly from the start. Editing that same row through the real "Edit" button
+and real pre-filled form produced a second real write, confirmed again on disk. Did not click
+through "Delete" in this round - same already-documented `confirmAction()` → native
+`window.confirm()` gap as `EventSchedulerView`'s own delete button - cleanup done directly against
+the real file instead. No new bug - every real call site behaved exactly as its own standalone
+test predicted.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2137,6 +2175,17 @@ behavior working exactly as designed, not a defect.
   Xvfb session can't provide), and the `shutdownOnStart`/`shutdownOnEnd` real stop-then-start
   cycle specifically from this subsystem (the underlying `startServer`/`stopServer` calls
   themselves are already proven elsewhere in this PoC, just not triggered from this code path).
+- **~~Nothing about a second real file-backed persistence path, independent of
+  electron-store~~ - proven, a twentieth real page.** See "A twentieth real page" above:
+  `MapManagerView.tsx`'s real `listMaps()`/`listCustomMaps()`/`addCustomMap()`/
+  `updateCustomMap()`/`deleteCustomMap()` go through `jsonListFile.ts`'s own read/parse/write
+  helpers and `getDataDir()`, not `conf`/`electron-store` - a different real persistence
+  mechanism from every `store.ts`-backed subsystem this PoC had ported before, confirmed to need
+  zero Electron coupling too. A real add and a real edit through the real compiled app each
+  produced a real write to the real `~/Documents/ARK Server Manager/customMaps.json` on disk,
+  independently re-confirming `getDataDir()`'s own real path for a second subsystem (the first
+  being `lib/managerLog.ts`, see "Findings" above). Still unconfirmed: the real `Delete` button's
+  `window.confirm()` round trip, same already-documented gap as `EventSchedulerView`'s own.
 
 ## Where the real Electron coupling lives
 

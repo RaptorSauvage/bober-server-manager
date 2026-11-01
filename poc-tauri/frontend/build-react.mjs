@@ -29,7 +29,8 @@ const pages = [
   'steamcmd',
   'groupconsole',
   'players',
-  'event-scheduler'
+  'event-scheduler',
+  'map-manager'
 ]
 
 for (const page of pages) {

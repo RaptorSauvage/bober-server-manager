@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Map Manager - real MapManagerView.tsx through Tauri</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: #14161a;
+        color: #e6e8ec;
+      }
+      .page {
+        padding: 24px;
+        max-width: 1000px;
+      }
+      .server-detail-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      h1 {
+        font-size: 1.3rem;
+        margin: 0;
+      }
+      h2 {
+        font-size: 1.1rem;
+        margin: 0;
+        flex: 1;
+      }
+      h3 {
+        margin: 0;
+        font-size: 0.95rem;
+      }
+      button {
+        background: #2c303a;
+        color: #e6e8ec;
+        border: 1px solid #3a3f4b;
+        border-radius: 4px;
+        padding: 4px 10px;
+        cursor: pointer;
+        font: inherit;
+      }
+      button:hover {
+        background: #3a3f4b;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      button.btn-accent {
+        background: #3a5f8a;
+        border-color: #4a7fc0;
+      }
+      button.danger {
+        border-color: #7a3a3a;
+      }
+      .cluster-section {
+        border: 1px solid #2c303a;
+        border-radius: 6px;
+        padding: 14px 16px;
+        margin-bottom: 16px;
+        background: #1a1d24;
+      }
+      .map-manager-section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+      .map-manager-count {
+        color: #9aa0ab;
+        font-weight: normal;
+        font-size: 0.85rem;
+      }
+      .map-manager-lock {
+        opacity: 0.6;
+      }
+      .map-manager-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .map-manager-table th,
+      .map-manager-table td {
+        text-align: left;
+        padding: 6px 8px;
+        border-bottom: 1px solid #2c303a;
+      }
+      .map-manager-row-actions {
+        display: flex;
+        gap: 6px;
+      }
+      .map-manager-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 24px;
+        background: transparent;
+        border: 1px dashed #3a3f4b;
+        font-size: 1.5rem;
+      }
+      .map-manager-empty span {
+        font-size: 0.85rem;
+        color: #9aa0ab;
+      }
+      .mono {
+        font-family: 'SF Mono', Consolas, monospace;
+        font-size: 0.85rem;
+      }
+      .muted {
+        color: #9aa0ab;
+      }
+      .empty-state {
+        color: #9aa0ab;
+      }
+      .error-message {
+        color: #ff8080;
+      }
+      /* Modal/wizard - same shape as event-scheduler.html's own first use of this. */
+      .wizard-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 20;
+      }
+      .wizard-modal {
+        background: #1a1d24;
+        border: 1px solid #3a3f4b;
+        border-radius: 8px;
+        padding: 20px 24px;
+        width: 420px;
+      }
+      .wizard-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      .wizard-header-icon {
+        font-size: 1.2rem;
+      }
+      .wizard-close {
+        background: transparent;
+        border: none;
+      }
+      .wizard-body {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .wizard-field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-bottom: 10px;
+        font-size: 0.85rem;
+      }
+      .wizard-field input {
+        background: #0f1115;
+        color: #e6e8ec;
+        border: 1px solid #2c303a;
+        border-radius: 4px;
+        padding: 6px 8px;
+        font: inherit;
+      }
+      .wizard-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 16px;
+        padding-top: 12px;
+        border-top: 1px solid #2c303a;
+      }
+      .wizard-footer > div {
+        display: flex;
+        gap: 8px;
+      }
+      .wizard-primary {
+        background: #3a5f8a;
+        border-color: #4a7fc0;
+      }
+      a {
+        color: #8ab4ff;
+      }
+    </style>
+  </head>
+  <body>
+    <p style="padding: 12px 24px 0"><a href="index.html">&larr; back to the main PoC page</a></p>
+    <div class="page">
+      <div id="root"></div>
+    </div>
+    <script type="module" src="map-manager.js"></script>
+  </body>
+</html>
