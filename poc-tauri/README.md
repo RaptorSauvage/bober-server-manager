@@ -38,7 +38,7 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   packaging" below. `src/main.rs` keeps a background async task reading the sidecar's stdout
   that routes each line either to the pending `call()` it answers (has an `"id"`), a
   `"shell-request"` (the sidecar calling back into Rust - see "The reverse direction" below), or
-  out to the webview as an ordinary Tauri event (any other `"event"`), and exposes ninety-two
+  out to the webview as an ordinary Tauri event (any other `"event"`), and exposes one hundred
   Tauri commands: `profiles_list`, `profiles_save` (takes a profile object), `profiles_copy`/
   `profiles_move` (take `profileId`/`destInstallDir`/`newName` - see "A second real page" below),
   `log_record` (takes a message string), `manager_log_get_all` (see "A real React page" below),
@@ -87,7 +87,10 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   `dialog_select_ini_file` (a fourth sidecar-free command) and `ini_templates_get_generic`/
   `ini_templates_save_generic`/`ini_templates_get_override`/`ini_templates_save_override`/
   `ini_templates_delete_override`/`ini_templates_apply`/`ini_templates_apply_all`/
-  `ini_templates_read_file`.
+  `ini_templates_read_file`. The twenty-second (see "A twenty-second real page" below) added
+  `file_browser_list`/`file_browser_open`/`file_browser_delete`/`file_browser_read_ini`/
+  `file_browser_write_ini`/`file_browser_ini_history`/`file_browser_ini_history_diff`/
+  `file_browser_ini_restore` - reaching the round-number hundredth Tauri command in this PoC.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -1861,6 +1864,41 @@ real created file and the real saved template afterward. No new bug - every real
 (including the one genuinely new behavior, honest file creation) matched its own standalone
 prediction exactly.
 
+### A twenty-second real page: a Notepad++-style editor, and the hundredth Tauri command
+
+`ServerDetail/FilesTab.tsx` is a file browser over the server's own real install directory with
+a Notepad++-inspired tabbed editor for `.ini`/`.json` files (`.log` files open read-only) -
+multiple files open at once, real line numbers, real syntax-colored overlay highlighting, and
+the same real history/diff/restore `IniTemplatesView.tsx` already proved a narrower slice of
+("A twenty-first real page"). Real, unmodified `listFileBrowserEntries`/
+`resolveFileBrowserPath`/`deleteFileBrowserFile`/`readIniFile`/`writeIniFile`/`listIniHistory`/
+`diffIniHistoryEntry`/`restoreIniHistoryEntry` (`lib/fileBrowser.ts`), mirroring the real
+`ipc/fileBrowser.ts` handlers' exact bodies - including `fileBrowser.open`, which calls the real
+`shell.openPath` straight from the sidecar (via `electronShim.ts`'s shim, already resolved to a
+real round trip through Rust in "The reverse direction") - a new real call site of that
+mechanism, not a new one. Reaches the round-number hundredth Tauri command this PoC has needed.
+
+**Confirmed standalone first**: a full real create → list → read → edit → save → history →
+diff → restore → delete cycle against a test `.ini` file round-tripped exactly as the real
+component's own logic predicts - a real history entry recorded on each save, a real diff showing
+`-`/`+` lines for the changed key, and a real restore producing the exact original content back.
+`fileBrowser.open`'s own real `shell.openPath` round trip was deliberately left untested here (it
+needs a live Rust side to answer the request, which a standalone sidecar process doesn't have) -
+confirmed instead only through the real compiled app, the correct way to exercise it.
+
+**Confirmed through the real compiled app**, with a real pre-seeded `.ini` file (this sandbox
+otherwise has none, with no real ARK server having ever run here) to browse to and click: the
+real, unmodified file browser correctly listed real folders down to a real
+`GameUserSettings.ini`, with its real size and modified time. Clicking it opened the real
+tabbed editor with real line-numbered syntax highlighting; editing `ServerPVE=False` to `True`
+showed the real dirty-tab dot, and clicking "Save" produced a real write confirmed on disk, a
+real history entry, and a real "View diff" showing the exact changed line. Clicking "Restore"
+correctly reverted the real file back to its original content on disk - confirmed both on screen
+and by reading the file directly - and itself added a second real history entry first (matching
+the real restore confirmation's own "current content will be saved to history first" text).
+No new bug - every real call site behaved exactly as its own standalone prediction, now also
+confirmed through a real sequence of real clicks rather than direct RPC calls.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2245,6 +2283,19 @@ prediction exactly.
   button's native dialog happy path (same gap as every other native picker in this PoC) and the
   real per-server override actually winning over the generic template in one applied result
   (both were exercised independently, just not together in the same real apply).
+- **~~Nothing about a full file browser + Notepad++-style editor with history/diff/restore~~ -
+  proven, a twenty-second real page, reaching the hundredth Tauri command.** See "A
+  twenty-second real page" above: `ServerDetail/FilesTab.tsx`'s real
+  `listFileBrowserEntries`/`readIniFile`/`writeIniFile`/`listIniHistory`/`diffIniHistoryEntry`/
+  `restoreIniHistoryEntry` (`lib/fileBrowser.ts`) round-tripped correctly both standalone and
+  through the real compiled app - a real click-driven edit, save, diff, and restore, each
+  confirmed against the real file on disk, not just the UI's own state. `fileBrowser.open`'s
+  real `shell.openPath` call reuses the exact reverse-direction mechanism "The reverse
+  direction" already proved, a new real call site rather than a new one. Still unconfirmed:
+  the real native OS "Open" action's own visible result (the same category of gap as every
+  other `shell.openPath`/native-dialog call in this PoC - this sandbox has no desktop session
+  to observe it opening in), and the `.log`-file read-only path specifically (no real log file
+  was browsed to this round, though `console.*`'s own log parsing is already proven elsewhere).
 
 ## Where the real Electron coupling lives
 

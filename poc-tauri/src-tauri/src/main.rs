@@ -721,6 +721,57 @@ fn ini_templates_read_file(file_path: String, sidecar: tauri::State<SidecarHandl
     sidecar.call("iniTemplates.readFile", Some(serde_json::json!({ "filePath": file_path })))
 }
 
+/// Backs ServerDetail/FilesTab.tsx - a twenty-second real page. See sidecar.ts's own comment:
+/// real, unmodified lib/fileBrowser.ts functions, mirroring ipc/fileBrowser.ts's handlers
+/// exactly, including fileBrowser_open's real shell.openPath round trip through Rust.
+#[tauri::command]
+fn file_browser_list(profile_id: String, relative_path: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("fileBrowser.list", Some(serde_json::json!({ "profileId": profile_id, "relativePath": relative_path })))
+}
+
+#[tauri::command]
+fn file_browser_open(profile_id: String, relative_path: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("fileBrowser.open", Some(serde_json::json!({ "profileId": profile_id, "relativePath": relative_path })))
+}
+
+#[tauri::command]
+fn file_browser_delete(profile_id: String, relative_path: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("fileBrowser.delete", Some(serde_json::json!({ "profileId": profile_id, "relativePath": relative_path })))
+}
+
+#[tauri::command]
+fn file_browser_read_ini(profile_id: String, relative_path: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("fileBrowser.readIni", Some(serde_json::json!({ "profileId": profile_id, "relativePath": relative_path })))
+}
+
+#[tauri::command]
+fn file_browser_write_ini(
+    profile_id: String,
+    relative_path: String,
+    content: String,
+    sidecar: tauri::State<SidecarHandle>,
+) -> Result<Value, String> {
+    sidecar.call(
+        "fileBrowser.writeIni",
+        Some(serde_json::json!({ "profileId": profile_id, "relativePath": relative_path, "content": content })),
+    )
+}
+
+#[tauri::command]
+fn file_browser_ini_history(profile_id: String, relative_path: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("fileBrowser.iniHistory", Some(serde_json::json!({ "profileId": profile_id, "relativePath": relative_path })))
+}
+
+#[tauri::command]
+fn file_browser_ini_history_diff(profile_id: String, entry_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("fileBrowser.iniHistoryDiff", Some(serde_json::json!({ "profileId": profile_id, "entryId": entry_id })))
+}
+
+#[tauri::command]
+fn file_browser_ini_restore(profile_id: String, entry_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("fileBrowser.iniRestore", Some(serde_json::json!({ "profileId": profile_id, "entryId": entry_id })))
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -1044,7 +1095,15 @@ fn main() {
             ini_templates_delete_override,
             ini_templates_apply,
             ini_templates_apply_all,
-            ini_templates_read_file
+            ini_templates_read_file,
+            file_browser_list,
+            file_browser_open,
+            file_browser_delete,
+            file_browser_read_ini,
+            file_browser_write_ini,
+            file_browser_ini_history,
+            file_browser_ini_history_diff,
+            file_browser_ini_restore
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -31,7 +31,8 @@ const pages = [
   'players',
   'event-scheduler',
   'map-manager',
-  'ini-templates'
+  'ini-templates',
+  'files'
 ]
 
 for (const page of pages) {

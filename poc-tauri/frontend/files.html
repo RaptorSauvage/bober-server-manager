@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Files - real FilesTab.tsx through Tauri</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: #14161a;
+        color: #e6e8ec;
+      }
+      .page {
+        padding: 24px;
+        max-width: 1200px;
+      }
+      h3,
+      h4 {
+        margin: 12px 0 6px;
+      }
+      button {
+        background: #2c303a;
+        color: #e6e8ec;
+        border: 1px solid #3a3f4b;
+        border-radius: 4px;
+        padding: 4px 10px;
+        cursor: pointer;
+        font: inherit;
+      }
+      button:hover {
+        background: #3a3f4b;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      button.btn-delete-backup {
+        border-color: #7a3a3a;
+      }
+      .empty-state {
+        color: #9aa0ab;
+      }
+      .error-message {
+        color: #ff8080;
+      }
+      .form-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      /* Breadcrumb + file listing */
+      .files-breadcrumb {
+        margin-bottom: 10px;
+      }
+      .files-breadcrumb button {
+        background: transparent;
+        border: none;
+        color: #8ab4ff;
+        padding: 2px 4px;
+      }
+      .data-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .data-table th,
+      .data-table td {
+        text-align: left;
+        padding: 6px 8px;
+        border-bottom: 1px solid #2c303a;
+      }
+      .files-name-cell {
+        cursor: pointer;
+        color: #8ab4ff;
+      }
+      /* Open tabs bar */
+      .files-open-tabs {
+        display: flex;
+        gap: 2px;
+        margin-bottom: 10px;
+        flex-wrap: wrap;
+      }
+      .files-open-tab {
+        display: flex;
+        align-items: center;
+        background: #1a1d24;
+        border: 1px solid #2c303a;
+        border-radius: 4px 4px 0 0;
+      }
+      .files-open-tab.active {
+        background: #2c303a;
+        border-color: #4a7fc0;
+      }
+      .files-open-tab-label,
+      .files-browse-tab {
+        background: transparent;
+        border: none;
+        padding: 6px 10px;
+      }
+      .files-open-tab-close {
+        background: transparent;
+        border: none;
+        padding: 2px 8px;
+      }
+      /* Editor */
+      .files-editor-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .files-editor-header h3 {
+        font-family: 'SF Mono', Consolas, monospace;
+        font-size: 0.9rem;
+        margin: 0;
+      }
+      .files-editor-readonly-badge {
+        color: #d9a441;
+        font-size: 0.8rem;
+      }
+      .files-editor-body {
+        display: flex;
+        border: 1px solid #2c303a;
+        border-radius: 6px;
+        overflow: hidden;
+        height: 420px;
+        margin-top: 8px;
+      }
+      .files-editor-gutter {
+        background: #0f1115;
+        color: #5a6270;
+        padding: 8px 6px;
+        text-align: right;
+        font-family: 'SF Mono', Consolas, monospace;
+        font-size: 0.82rem;
+        overflow: hidden;
+        user-select: none;
+        line-height: 1.4;
+      }
+      .files-editor-code {
+        position: relative;
+        flex: 1;
+        overflow: hidden;
+      }
+      .files-editor-highlight,
+      .files-editor-textarea {
+        margin: 0;
+        padding: 8px;
+        font-family: 'SF Mono', Consolas, monospace;
+        font-size: 0.82rem;
+        line-height: 1.4;
+        white-space: pre;
+        box-sizing: border-box;
+        width: 100%;
+        height: 100%;
+      }
+      .files-editor-highlight {
+        position: absolute;
+        top: 0;
+        left: 0;
+        color: #c9cdd6;
+        background: #0f1115;
+        overflow: auto;
+        pointer-events: none;
+      }
+      .files-editor-textarea {
+        position: relative;
+        background: transparent;
+        color: transparent;
+        caret-color: #e6e8ec;
+        border: none;
+        resize: none;
+        overflow: auto;
+      }
+      /* Syntax highlighting token colors */
+      .tok-comment {
+        color: #6b7280;
+        font-style: italic;
+      }
+      .tok-section {
+        color: #d9a441;
+        font-weight: bold;
+      }
+      .tok-key {
+        color: #8ab4ff;
+      }
+      .tok-punctuation {
+        color: #9aa0ab;
+      }
+      .tok-string {
+        color: #3fbf6f;
+      }
+      .tok-number {
+        color: #c9a3ff;
+      }
+      .tok-boolean {
+        color: #c9a3ff;
+      }
+      .tok-timestamp {
+        color: #5a6270;
+      }
+      .tok-error {
+        color: #ff8080;
+      }
+      .tok-warn {
+        color: #d9a441;
+      }
+      .tok-info {
+        color: #8ab4ff;
+      }
+      .tok-plain {
+        color: #c9cdd6;
+      }
+      /* History + diff */
+      .files-ini-history-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      .files-ini-history-list li {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 4px 0;
+        border-bottom: 1px solid #2c303a;
+        font-size: 0.85rem;
+      }
+      .files-ini-diff {
+        display: flex;
+        flex-direction: column;
+        font-family: 'SF Mono', Consolas, monospace;
+        font-size: 0.82rem;
+        background: #0f1115;
+        border: 1px solid #2c303a;
+        border-radius: 4px;
+        padding: 8px;
+        margin-top: 8px;
+      }
+      .diff-added {
+        color: #3fbf6f;
+      }
+      .diff-removed {
+        color: #ff8080;
+      }
+      .diff-same {
+        color: #9aa0ab;
+      }
+      a {
+        color: #8ab4ff;
+      }
+    </style>
+  </head>
+  <body>
+    <p style="padding: 12px 24px 0"><a href="index.html">&larr; back to the main PoC page</a></p>
+    <div class="page">
+      <h1 style="font-size: 1.3rem">Files</h1>
+      <div id="root"></div>
+    </div>
+    <script type="module" src="files.js"></script>
+  </body>
+</html>

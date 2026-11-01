@@ -106,6 +106,17 @@ import { applyIniTemplate, applyIniTemplateToAll } from '../../src/main/lib/iniT
 import { armModEvent, disarmModEvent, armAllModEvents } from '../../src/main/lib/modEvents'
 import { listMaps } from '../../src/main/lib/maps'
 import { listCustomMaps, addCustomMap, updateCustomMap, deleteCustomMap } from '../../src/main/lib/customMaps'
+import {
+  listFileBrowserEntries,
+  resolveFileBrowserPath,
+  deleteFileBrowserFile,
+  readIniFile,
+  writeIniFile,
+  listIniHistory,
+  diffIniHistoryEntry,
+  restoreIniHistoryEntry
+} from '../../src/main/lib/fileBrowser'
+import { shell } from 'electron'
 import { send, resolveRustResponse } from './rpcToRust'
 import type { GameId } from '../../shared/games'
 import type { AppSettings, IniTemplateContent, IniTemplateProfileOverride, ModEvent, ServerProfile } from '../../shared/types'
@@ -800,6 +811,67 @@ const methods: Record<string, (params: unknown) => unknown> = {
     } catch (err) {
       throw new Error(`Couldn't read ${filePath}: ${(err as Error).message}`)
     }
+  },
+  // A twenty-second real page: ServerDetail/FilesTab.tsx - a Notepad++-inspired file browser
+  // and tabbed editor over the server's own install directory, with the same real
+  // history/diff/restore .ini editing lib/iniTemplates.ts's own Save button already proved a
+  // slice of. Real, unmodified listFileBrowserEntries/resolveFileBrowserPath/
+  // deleteFileBrowserFile/readIniFile/writeIniFile/listIniHistory/diffIniHistoryEntry/
+  // restoreIniHistoryEntry (lib/fileBrowser.ts) - mirrors the real ipc/fileBrowser.ts
+  // handlers' exact bodies, including fileBrowser.open's real `shell.openPath` call (the same
+  // real reverse-direction round trip "The reverse direction" already proved, a new real call
+  // site of it rather than a new mechanism).
+  'fileBrowser.list': (params) => {
+    const { profileId, relativePath } = params as { profileId: string; relativePath: string }
+    const profile = listProfiles().find((p) => p.id === profileId)
+    if (!profile) throw new Error(`Unknown profile: ${profileId}`)
+    return listFileBrowserEntries(profile.installDir, relativePath)
+  },
+  'fileBrowser.open': async (params) => {
+    const { profileId, relativePath } = params as { profileId: string; relativePath: string }
+    const profile = listProfiles().find((p) => p.id === profileId)
+    if (!profile) throw new Error(`Unknown profile: ${profileId}`)
+    const filePath = resolveFileBrowserPath(profile.installDir, relativePath)
+    const error = await shell.openPath(filePath)
+    if (error) throw new Error(error)
+    return { ok: true }
+  },
+  'fileBrowser.delete': (params) => {
+    const { profileId, relativePath } = params as { profileId: string; relativePath: string }
+    const profile = listProfiles().find((p) => p.id === profileId)
+    if (!profile) throw new Error(`Unknown profile: ${profileId}`)
+    deleteFileBrowserFile(profile.installDir, relativePath)
+    return { ok: true }
+  },
+  'fileBrowser.readIni': (params) => {
+    const { profileId, relativePath } = params as { profileId: string; relativePath: string }
+    const profile = listProfiles().find((p) => p.id === profileId)
+    if (!profile) throw new Error(`Unknown profile: ${profileId}`)
+    return readIniFile(profile.installDir, relativePath)
+  },
+  'fileBrowser.writeIni': (params) => {
+    const { profileId, relativePath, content } = params as { profileId: string; relativePath: string; content: string }
+    const profile = listProfiles().find((p) => p.id === profileId)
+    if (!profile) throw new Error(`Unknown profile: ${profileId}`)
+    writeIniFile(profileId, profile.installDir, relativePath, content)
+    return { ok: true }
+  },
+  'fileBrowser.iniHistory': (params) => {
+    const { profileId, relativePath } = params as { profileId: string; relativePath: string }
+    return listIniHistory(profileId, relativePath)
+  },
+  'fileBrowser.iniHistoryDiff': (params) => {
+    const { profileId, entryId } = params as { profileId: string; entryId: string }
+    const profile = listProfiles().find((p) => p.id === profileId)
+    if (!profile) throw new Error(`Unknown profile: ${profileId}`)
+    return diffIniHistoryEntry(profileId, profile.installDir, entryId)
+  },
+  'fileBrowser.iniRestore': (params) => {
+    const { profileId, entryId } = params as { profileId: string; entryId: string }
+    const profile = listProfiles().find((p) => p.id === profileId)
+    if (!profile) throw new Error(`Unknown profile: ${profileId}`)
+    restoreIniHistoryEntry(profileId, profile.installDir, entryId)
+    return { ok: true }
   }
 }
 
