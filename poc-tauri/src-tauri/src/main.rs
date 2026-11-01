@@ -238,6 +238,20 @@ fn dialog_select_file(app_handle: tauri::AppHandle) -> Option<String> {
         .map(|p| p.to_string())
 }
 
+/// Backs IniTemplatesView.tsx's "Import from file..." buttons (window.api.dialog.selectIniFile)
+/// - same architectural class as dialog_select_file, with a real .ini filter matching the real
+/// dialog.ts's own showOpenDialog filters.
+#[tauri::command]
+fn dialog_select_ini_file(app_handle: tauri::AppHandle) -> Option<String> {
+    app_handle
+        .dialog()
+        .file()
+        .add_filter("INI files", &["ini"])
+        .add_filter("All files", &["*"])
+        .blocking_pick_file()
+        .map(|p| p.to_string())
+}
+
 #[tauri::command]
 fn player_roster_list(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
     sidecar.call("playerRoster.list", Some(serde_json::json!({ "profileId": profile_id })))
@@ -664,6 +678,49 @@ fn custom_maps_delete(id: String, sidecar: tauri::State<SidecarHandle>) -> Resul
     sidecar.call("customMaps.delete", Some(serde_json::json!({ "id": id })))
 }
 
+/// Backs IniTemplatesView.tsx - a twenty-first real page. See sidecar.ts's own comment: the
+/// first real code in this whole PoC to write directly into a real GameUserSettings.ini/
+/// Game.ini file.
+#[tauri::command]
+fn ini_templates_get_generic(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("iniTemplates.getGeneric", None)
+}
+
+#[tauri::command]
+fn ini_templates_save_generic(content: Value, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("iniTemplates.saveGeneric", Some(content))
+}
+
+#[tauri::command]
+fn ini_templates_get_override(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("iniTemplates.getOverride", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+#[tauri::command]
+fn ini_templates_save_override(override_entry: Value, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("iniTemplates.saveOverride", Some(override_entry))
+}
+
+#[tauri::command]
+fn ini_templates_delete_override(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("iniTemplates.deleteOverride", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+#[tauri::command]
+fn ini_templates_apply(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("iniTemplates.apply", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+#[tauri::command]
+fn ini_templates_apply_all(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("iniTemplates.applyAll", None)
+}
+
+#[tauri::command]
+fn ini_templates_read_file(file_path: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("iniTemplates.readFile", Some(serde_json::json!({ "filePath": file_path })))
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -901,6 +958,7 @@ fn main() {
             profiles_move,
             dialog_select_directory,
             dialog_select_file,
+            dialog_select_ini_file,
             window_focus,
             player_roster_list,
             player_roster_kick,
@@ -978,7 +1036,15 @@ fn main() {
             custom_maps_list,
             custom_maps_add,
             custom_maps_update,
-            custom_maps_delete
+            custom_maps_delete,
+            ini_templates_get_generic,
+            ini_templates_save_generic,
+            ini_templates_get_override,
+            ini_templates_save_override,
+            ini_templates_delete_override,
+            ini_templates_apply,
+            ini_templates_apply_all,
+            ini_templates_read_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

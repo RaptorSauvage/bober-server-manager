@@ -30,7 +30,8 @@ const pages = [
   'groupconsole',
   'players',
   'event-scheduler',
-  'map-manager'
+  'map-manager',
+  'ini-templates'
 ]
 
 for (const page of pages) {

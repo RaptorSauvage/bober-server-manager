@@ -89,13 +89,26 @@ import {
   getBackupLog
 } from '../../src/main/lib/backup'
 import { listPlayerBackupFolders, listPlayerBackups, openPlayerBackupFolder } from '../../src/main/lib/playerBackup'
-import { getSettings, saveSettings, listModEvents, saveModEvent, deleteModEvent, listModEventHistory } from '../../src/main/store'
+import {
+  getSettings,
+  saveSettings,
+  listModEvents,
+  saveModEvent,
+  deleteModEvent,
+  listModEventHistory,
+  getIniTemplateGeneric,
+  saveIniTemplateGeneric,
+  getIniTemplateOverride,
+  saveIniTemplateOverride,
+  deleteIniTemplateOverride
+} from '../../src/main/store'
+import { applyIniTemplate, applyIniTemplateToAll } from '../../src/main/lib/iniTemplates'
 import { armModEvent, disarmModEvent, armAllModEvents } from '../../src/main/lib/modEvents'
 import { listMaps } from '../../src/main/lib/maps'
 import { listCustomMaps, addCustomMap, updateCustomMap, deleteCustomMap } from '../../src/main/lib/customMaps'
 import { send, resolveRustResponse } from './rpcToRust'
 import type { GameId } from '../../shared/games'
-import type { AppSettings, ModEvent, ServerProfile } from '../../shared/types'
+import type { AppSettings, IniTemplateContent, IniTemplateProfileOverride, ModEvent, ServerProfile } from '../../shared/types'
 
 interface RpcRequest {
   id: number
@@ -746,7 +759,48 @@ const methods: Record<string, (params: unknown) => unknown> = {
     const { originalId, entry } = params as { originalId: string; entry: { id: string; displayName: string; modId?: string } }
     return updateCustomMap(originalId, entry)
   },
-  'customMaps.delete': (params) => deleteCustomMap((params as { id: string }).id)
+  'customMaps.delete': (params) => deleteCustomMap((params as { id: string }).id),
+  // A twenty-first real page: IniTemplatesView.tsx - a cluster-wide generic
+  // GameUserSettings.ini/Game.ini template plus an optional per-server override, merged
+  // key-by-key into each real profile's real config files. getIniTemplateGeneric/
+  // saveIniTemplateGeneric/getIniTemplateOverride/saveIniTemplateOverride/
+  // deleteIniTemplateOverride (store.ts) are the same real electron-store-backed CRUD shape
+  // this PoC has already proven many times over; the genuinely new real code is
+  // applyIniTemplate/applyIniTemplateToAll (lib/iniTemplates.ts) - real, unmodified, and the
+  // first thing in this whole PoC to write directly into a real GameUserSettings.ini/Game.ini
+  // file (gameConfigWrite.ts's upsertIniKeys, surgically updating an existing key in place or
+  // inserting a new one into its section - not a template engine standing in for it). No real
+  // ARK config file exists yet for any seeded profile in this sandbox, so applying for the
+  // first time genuinely creates `ShooterGame/Saved/Config/WindowsServer/*.ini` from nothing -
+  // confirmed real, honest file-creation behavior (upsertIniKeys's own
+  // tryReadExistingContent treats a missing file as a legitimate empty starting point, not an
+  // error), not a simulated success.
+  'iniTemplates.getGeneric': () => getIniTemplateGeneric(),
+  'iniTemplates.saveGeneric': (params) => saveIniTemplateGeneric(params as IniTemplateContent),
+  'iniTemplates.getOverride': (params) => getIniTemplateOverride((params as { profileId: string }).profileId) ?? null,
+  'iniTemplates.saveOverride': (params) => saveIniTemplateOverride(params as IniTemplateProfileOverride),
+  'iniTemplates.deleteOverride': (params) => deleteIniTemplateOverride((params as { profileId: string }).profileId),
+  'iniTemplates.apply': (params) => {
+    const { profileId } = params as { profileId: string }
+    const profile = listProfiles().find((p) => p.id === profileId)
+    if (!profile) throw new Error(`Unknown profile: ${profileId}`)
+    applyIniTemplate(profile)
+    return { ok: true }
+  },
+  'iniTemplates.applyAll': () => applyIniTemplateToAll(),
+  // Real, unmodified fs.readFileSync wrapper - backs the real "Import from file..." buttons
+  // (reads back whatever .ini the native file picker below returned). Not Electron-coupled at
+  // all in the real ipc/iniTemplates.ts handler either (it's a plain fs call wrapped in a
+  // try/catch, no shim needed), so it's reproduced directly here rather than imported from a
+  // lib/ file that doesn't exist for it.
+  'iniTemplates.readFile': (params) => {
+    const { filePath } = params as { filePath: string }
+    try {
+      return fs.readFileSync(filePath, 'utf-8')
+    } catch (err) {
+      throw new Error(`Couldn't read ${filePath}: ${(err as Error).message}`)
+    }
+  }
 }
 
 let stopConsoleWatch: (() => void) | null = null

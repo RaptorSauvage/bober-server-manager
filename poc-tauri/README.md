@@ -38,7 +38,7 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   packaging" below. `src/main.rs` keeps a background async task reading the sidecar's stdout
   that routes each line either to the pending `call()` it answers (has an `"id"`), a
   `"shell-request"` (the sidecar calling back into Rust - see "The reverse direction" below), or
-  out to the webview as an ordinary Tauri event (any other `"event"`), and exposes eighty-three
+  out to the webview as an ordinary Tauri event (any other `"event"`), and exposes ninety-two
   Tauri commands: `profiles_list`, `profiles_save` (takes a profile object), `profiles_copy`/
   `profiles_move` (take `profileId`/`destInstallDir`/`newName` - see "A second real page" below),
   `log_record` (takes a message string), `manager_log_get_all` (see "A real React page" below),
@@ -83,7 +83,11 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   nineteenth (see "A nineteenth real page" below) added `mod_events_list`/`mod_events_save`/
   `mod_events_delete`/`mod_events_history`. The twentieth (see "A twentieth real page" below)
   added `maps_list`, `custom_maps_list`/`custom_maps_add`/`custom_maps_update`/
-  `custom_maps_delete`.
+  `custom_maps_delete`. The twenty-first (see "A twenty-first real page" below) added
+  `dialog_select_ini_file` (a fourth sidecar-free command) and `ini_templates_get_generic`/
+  `ini_templates_save_generic`/`ini_templates_get_override`/`ini_templates_save_override`/
+  `ini_templates_delete_override`/`ini_templates_apply`/`ini_templates_apply_all`/
+  `ini_templates_read_file`.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -1816,6 +1820,47 @@ through "Delete" in this round - same already-documented `confirmAction()` → n
 the real file instead. No new bug - every real call site behaved exactly as its own standalone
 test predicted.
 
+### A twenty-first real page: the first real code to write directly into a GameUserSettings.ini/Game.ini
+
+`IniTemplatesView.tsx` (`src/renderer/src/pages/`) writes a cluster-wide generic
+GameUserSettings.ini/Game.ini template, plus an optional per-server override, merged key-by-key
+into each real profile's real config files - an existing key is updated right where it already
+sits, a new one is inserted into its section, and the override wins over the generic template for
+anything both set. `getIniTemplateGeneric`/`saveIniTemplateGeneric`/`getIniTemplateOverride`/
+`saveIniTemplateOverride`/`deleteIniTemplateOverride` (`store.ts`) are the same real
+electron-store CRUD shape this PoC has proven many times already; the genuinely new real code is
+`applyIniTemplate`/`applyIniTemplateToAll` (`lib/iniTemplates.ts`) - the first thing in this whole
+PoC to write directly into a real `GameUserSettings.ini`/`Game.ini`, via `gameConfigWrite.ts`'s
+`upsertIniKeys`: a real surgical in-place key update or section insert, not a template engine
+standing in for the real merge logic. Also added a fourth sidecar-free native-dialog command,
+`dialog_select_ini_file` (backs "Import from file..."), the same architectural shape as
+`dialog_select_file`/`dialog_select_directory`, with a real `.ini` file filter.
+
+**Confirmed standalone first**, specifically to see what applying a template against a profile
+with no config file yet actually does before risking it through the real UI: saving a generic
+template then calling `apply` against a real seeded profile succeeded cleanly and genuinely
+**created** `ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini` from nothing -
+`upsertIniKeys`'s own `tryReadExistingContent` treats a missing file as a legitimate empty
+starting point (not an error), so a first-ever apply is real, honest file creation, not a
+failure. `applyAll` correctly produced the same real result across every seeded profile in one
+call. Reverted the created files and the saved template afterward to keep the sandbox clean.
+
+**Confirmed through the real compiled app**, deliberately exercising a different template content
+than the standalone round to also confirm the one field actually typed is the one that lands (and
+nothing phantom from a `placeholder` leaks in): typed a real `[ServerSettings]`/
+`DifficultyOffset=1.0` block into the real GameUserSettings.ini textarea only (leaving Game.ini's
+textarea genuinely empty, not just showing its own placeholder text), clicked "Save Generic
+Template" (real "Saved" confirmation appeared), then clicked "Apply" on one real server row (real
+"Applied" status appeared). Checked directly on disk: a real `GameUserSettings.ini` was created
+with exactly the typed key plus the real forced `SessionName=<profile name>` line - and, correctly,
+no `Game.ini` was created at all, since that template field's real saved value was still empty
+(only its placeholder text had ever been visible, never actually saved) - `applyIniTemplate`'s own
+`gameEntries.length > 0` gate correctly skipped it. Opening "Edit Override" also rendered the real
+per-server override modal correctly, pre-filled from the real (empty) saved state. Reverted the
+real created file and the real saved template afterward. No new bug - every real call site
+(including the one genuinely new behavior, honest file creation) matched its own standalone
+prediction exactly.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2186,6 +2231,20 @@ test predicted.
   independently re-confirming `getDataDir()`'s own real path for a second subsystem (the first
   being `lib/managerLog.ts`, see "Findings" above). Still unconfirmed: the real `Delete` button's
   `window.confirm()` round trip, same already-documented gap as `EventSchedulerView`'s own.
+- **~~Nothing about writing directly into a real GameUserSettings.ini/Game.ini~~ - proven, a
+  twenty-first real page.** See "A twenty-first real page" above: `IniTemplatesView.tsx`'s real
+  `applyIniTemplate()`/`applyIniTemplateToAll()` (`lib/iniTemplates.ts`) surgically update an
+  existing key in place or insert a new one into its section via `gameConfigWrite.ts`'s
+  `upsertIniKeys` - the first real code in this whole PoC to touch a real ARK config file
+  directly, not a stand-in. Confirmed standalone that a first-ever apply genuinely **creates**
+  the real file from nothing (an honest, documented real behavior, not a bug), then confirmed
+  through the real compiled app with a real typed template, a real "Apply" click, and a real
+  file checked on disk afterward - including confirming a field whose textarea only ever showed
+  placeholder text correctly produced no file at all for it. Added a fourth sidecar-free native
+  dialog command (`dialog_select_ini_file`). Still unconfirmed: the real "Import from file..."
+  button's native dialog happy path (same gap as every other native picker in this PoC) and the
+  real per-server override actually winning over the generic template in one applied result
+  (both were exercised independently, just not together in the same real apply).
 
 ## Where the real Electron coupling lives
 
