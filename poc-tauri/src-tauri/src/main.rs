@@ -976,6 +976,30 @@ fn web_dashboard_api_keys_delete(id: String, sidecar: tauri::State<SidecarHandle
     sidecar.call("webDashboardApiKeys.delete", Some(serde_json::json!({ "id": id })))
 }
 
+/// Backs InstallMinecraftServerPanel.tsx - a twenty-seventh real page. See sidecar.ts's own
+/// comment: real, unmodified lib/minecraftInstall.ts/minecraftInstallClient.ts functions.
+#[tauri::command]
+fn minecraft_install_list_versions(server_type: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.install.listVersions", Some(serde_json::json!({ "serverType": server_type })))
+}
+
+#[tauri::command]
+fn minecraft_install_list_loader_versions(
+    server_type: String,
+    minecraft_version: String,
+    sidecar: tauri::State<SidecarHandle>,
+) -> Result<Value, String> {
+    sidecar.call(
+        "minecraft.install.listLoaderVersions",
+        Some(serde_json::json!({ "serverType": server_type, "minecraftVersion": minecraft_version })),
+    )
+}
+
+#[tauri::command]
+fn minecraft_install_run(params: Value, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.install.run", Some(params))
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -1337,7 +1361,10 @@ fn main() {
             web_dashboard_api_keys_list,
             web_dashboard_api_keys_create,
             web_dashboard_api_keys_update,
-            web_dashboard_api_keys_delete
+            web_dashboard_api_keys_delete,
+            minecraft_install_list_versions,
+            minecraft_install_list_loader_versions,
+            minecraft_install_run
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

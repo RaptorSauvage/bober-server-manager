@@ -104,7 +104,10 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   `cluster_export`/`cluster_import`, `web_dashboard_access_tokens_list`/`_create`/`_update`/
   `_delete`, `web_dashboard_api_keys_list`/`_create`/`_update`/`_delete`, and two more
   sidecar-free dialogs (`dialog_save_cluster_bundle_file`/`dialog_select_cluster_bundle_file`,
-  a sixth and seventh) - one hundred and thirty Tauri commands total.
+  a sixth and seventh) - one hundred and thirty Tauri commands total. The twenty-seventh (see
+  "A twenty-seventh real page" below) added `minecraft_install_list_versions`/
+  `minecraft_install_list_loader_versions`/`minecraft_install_run` - one hundred and
+  thirty-three Tauri commands total.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -2094,6 +2097,41 @@ sidecar harness never has this problem (it runs the bundled `.cjs` directly off 
 exactly why this didn't surface until the first real multi-tab round that also happened to need
 a post-hoc frontend fix.
 
+### A twenty-seventh real page: the first real Minecraft-specific subsystem, and a `.jpg` icon
+
+`InstallMinecraftServerPanel.tsx` is the "+ Add server" install-from-scratch wizard for a brand
+new Minecraft server - the first page in this PoC to exercise `lib/minecraftInstall.ts`/
+`minecraftInstallClient.ts` (real, unmodified), which fetch/build the right files for
+vanilla/Paper/Fabric/Forge/NeoForge/Spigot/Sponge servers. Picked specifically because
+`minecraftInstallClient.ts`'s own top-of-file comment already flags that none of this code had
+ever been verified against the real Mojang/Paper/Fabric/Forge/NeoForge/Sponge APIs *from the
+real app's own development sandbox either* - this PoC's network-less sandbox hitting the same
+honest failure is the same category of gap the real codebase already carries, not a new one, and
+this round is the first time any of this ~870-line subsystem has actually been exercised at all,
+in either environment. Also the first page needing a `.jpg` icon asset (Spigot's own) alongside
+the already-proven `.png` ones - `build-react.mjs`'s esbuild `loader` map just needed a second
+entry (`{'.jpg': 'dataurl'}`), no new mechanism.
+
+**Confirmed standalone first**: `minecraft.install.listVersions`/`.listLoaderVersions` both
+returned the real, honest `"fetch failed"` error (no network access in this sandbox) in well
+under a second for every loader type tried (vanilla, paper) - fast and deterministic, not a
+hang, confirmed worth proceeding to the full compiled-app round without risk.
+
+**Confirmed through the real compiled app**: the real, unmodified wizard rendered correctly on
+load, including the real per-type icon (Paper's `.png`, then Spigot's `.jpg` after switching
+types, both inline `data:` URIs baked into the bundle) and the real type-specific hint text:
+switching to Spigot correctly hid the "Loader / build version" selector entirely (matching
+`supportsLoaderVersionSelection()`'s real logic) and the real `listVersions('spigot')` call
+fired fresh, producing the same honest `"fetch failed"`. Filling in a name/install directory,
+checking the EULA box, and clicking **Install** correctly hit the real component's own
+`handleInstall()` validation guard - `"Pick a Minecraft version first."` - rather than ever
+reaching `window.api.minecraft.install.run(...)`, because `minecraftVersion` can never get
+auto-selected from an empty `versions` list when every real version fetch has already failed.
+Confirmed no file or directory was created at the chosen install path - the real guard blocked
+before any real I/O, exactly as a real offline user would experience it. No new bug - the real
+validation logic, the real per-type UI branching, and the real honest network failure all
+matched their own standalone predictions.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2547,6 +2585,15 @@ a post-hoc frontend fix.
   download/install behavior in a packaged build (this sandbox has never built a packaged
   release, the same category of gap as "needs a real external credential/environment" cases
   elsewhere in this PoC).
+- **~~Nothing about the Minecraft server-install subsystem~~ - proven, a twenty-seventh real
+  page.** See "A twenty-seventh real page" above: the real wizard, its real per-type UI
+  branching, and the real `minecraft.install.*` RPC methods all confirmed, hitting the same
+  honest "fetch failed" the real codebase's own author already flagged as unverified even in
+  their own dev environment. Still entirely unconfirmed: the actual download/build result for
+  any of the seven server types (needs real network access this sandbox has never had, the
+  same category of gap as SteamCMD's own install path), and the entire rest of the Minecraft
+  subsystem (`MinecraftDashboard.tsx` and all eight `MinecraftServerDetail/*.tsx` files remain
+  completely unported - 0%).
 
 ## Where the real Electron coupling lives
 

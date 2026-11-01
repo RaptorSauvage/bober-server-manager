@@ -153,9 +153,15 @@ import {
   deleteWebDashboardApiKey
 } from '../../src/main/store'
 import { hashPassword, generateApiKeyId, generateApiKeySecret, buildApiKey } from '../../src/main/lib/auth'
+import {
+  listInstallableMinecraftVersions,
+  listInstallableLoaderVersions,
+  installMinecraftServerFiles
+} from '../../src/main/lib/minecraftInstall'
 import { app, shell } from 'electron'
 import { send, resolveRustResponse } from './rpcToRust'
 import type { GameId } from '../../shared/games'
+import type { MinecraftInstallableType, MinecraftInstallParams } from '../../shared/minecraftInstall'
 import type {
   AppSettings,
   IniTemplateContent,
@@ -1191,7 +1197,28 @@ const methods: Record<string, (params: unknown) => unknown> = {
   'webDashboardApiKeys.delete': (params) => {
     const { id } = params as { id: string }
     return deleteWebDashboardApiKey(id).map((k) => ({ id: k.id, label: k.label, role: k.role, createdAt: k.createdAt }))
-  }
+  },
+  // Real, unmodified listInstallableMinecraftVersions()/listInstallableLoaderVersions()/
+  // installMinecraftServerFiles() (lib/minecraftInstall.ts, dispatching into
+  // lib/minecraftInstallClient.ts's own per-loader fetch/build functions) - the first real
+  // Minecraft-specific subsystem this PoC exercises beyond the profile store itself (see
+  // "A twenty-sixth real page"'s cluster.import). minecraftInstallClient.ts's own top-of-file
+  // comment already flags that none of this could be verified against the real Mojang/Paper/
+  // Fabric/Forge/NeoForge/Sponge APIs from the real app's own development sandbox either - this
+  // PoC's own network-less sandbox is the same category of gap, not a new one, and is the first
+  // time any of this code has actually been exercised at all, in either environment.
+  'minecraft.install.listVersions': (params) => {
+    const { serverType } = params as { serverType: MinecraftInstallableType }
+    return listInstallableMinecraftVersions(serverType)
+  },
+  'minecraft.install.listLoaderVersions': (params) => {
+    const { serverType, minecraftVersion } = params as {
+      serverType: MinecraftInstallableType
+      minecraftVersion: string
+    }
+    return listInstallableLoaderVersions(serverType, minecraftVersion)
+  },
+  'minecraft.install.run': (params) => installMinecraftServerFiles(params as MinecraftInstallParams)
 }
 
 let stopConsoleWatch: (() => void) | null = null

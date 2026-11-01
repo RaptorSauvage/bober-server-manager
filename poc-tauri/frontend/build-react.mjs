@@ -36,7 +36,8 @@ const pages = [
   'mods',
   'settings',
   'server-detail',
-  'data-settings'
+  'data-settings',
+  'install-minecraft'
 ]
 
 for (const page of pages) {
@@ -57,7 +58,7 @@ for (const page of pages) {
     // icon as a base64 data URI right into this page's own bundled .js - keeps every page a
     // single self-contained file, matching how every other page here is already served, rather
     // than introducing a second kind of build output (loose files) just for this one page.
-    loader: { '.png': 'dataurl' },
+    loader: { '.png': 'dataurl', '.jpg': 'dataurl' },
     logLevel: 'info'
   })
   console.log(`React page bundled -> ${page}.js`)

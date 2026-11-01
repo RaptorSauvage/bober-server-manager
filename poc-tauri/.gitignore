@@ -29,3 +29,4 @@ frontend/mods.js
 frontend/settings.js
 frontend/server-detail.js
 frontend/data-settings.js
+frontend/install-minecraft.js
