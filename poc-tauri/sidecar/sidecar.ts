@@ -166,6 +166,7 @@ import {
 } from '../../src/main/lib/minecraftInstall'
 import { getStatus as getMinecraftStatus, minecraftServerEvents, sendStdinCommand, getConsoleBacklog, minecraftConsoleEvents } from '../../src/main/lib/minecraftProcess'
 import { sendMinecraftRconCommand } from '../../src/main/lib/minecraftRcon'
+import { detectMinecraftLaunchable } from '../../src/main/lib/minecraftDetect'
 import { app, shell } from 'electron'
 import { send, resolveRustResponse } from './rpcToRust'
 import type { GameId } from '../../shared/games'
@@ -1266,7 +1267,11 @@ const methods: Record<string, (params: unknown) => unknown> = {
     if (!profile) return { ok: false, error: `Unknown Minecraft profile: ${profileId}` }
     return sendMinecraftRconCommand(profile.installDir, command)
   },
-  'minecraft.console.getBacklog': (params) => getConsoleBacklog((params as { profileId: string }).profileId)
+  'minecraft.console.getBacklog': (params) => getConsoleBacklog((params as { profileId: string }).profileId),
+  // Real, unmodified detectMinecraftLaunchable() (lib/minecraftDetect.ts) - backs
+  // MinecraftServerDetail/StartSettingsTab.tsx's "Re-detect from install directory" button, a
+  // thirtieth real page. Plain fs.readdirSync-based heuristic, no Electron coupling at all.
+  'minecraft.detectLaunchable': (params) => detectMinecraftLaunchable((params as { installDir: string }).installDir)
 }
 
 let stopConsoleWatch: (() => void) | null = null

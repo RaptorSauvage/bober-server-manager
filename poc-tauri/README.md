@@ -112,7 +112,8 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   Minecraft profile CRUD foundation - one hundred and thirty-six Tauri commands total. The
   twenty-ninth (see "A twenty-ninth real page" below) added `minecraft_server_get_status`/
   `minecraft_server_send_command`/`minecraft_console_get_backlog` - one hundred and
-  thirty-nine Tauri commands total.
+  thirty-nine Tauri commands total. The thirtieth (see "A thirtieth real page" below) added
+  `minecraft_detect_launchable` - one hundred and forty Tauri commands total.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -2200,6 +2201,32 @@ the real component's own `state !== 'running'` gate exactly - confirming the rea
 live status) round-trips through the full Rust+sidecar pipeline too, not just standalone. No new
 bug - the only genuinely new thing this round found was a build-tooling gap, not a logic one.
 
+### A thirtieth real page: the Minecraft server's own launch/startup settings
+
+`MinecraftServerDetail/StartSettingsTab.tsx` - server type, Minecraft version, install directory,
+jar/script launch mode, memory, extra JVM/program arguments, dashboard group, and the "Re-detect
+from install directory" button. Reuses three already-proven real call sites wholesale
+(`minecraft.install.listVersions`/`listLoaderVersions` from "A twenty-seventh real page",
+`minecraft.profiles.save` from "A twenty-eighth real page") plus one genuinely new one:
+`lib/minecraftDetect.ts`'s `detectMinecraftLaunchable(installDir)` - a plain `fs.readdirSync`-
+based filename heuristic with no Electron coupling at all, backing the re-detect button.
+
+**Confirmed standalone:** pointed it at a real directory containing a real
+`paper-1.20.1-196.jar`, got back `{"launchMode":"jar","jarFileName":"paper-1.20.1-196.jar",
+"scriptFileName":"","serverType":"paper"}` - the real filename heuristic correctly inferred
+`"paper"` from the jar name. A nonexistent directory correctly returned `null`.
+
+**Confirmed through the real compiled app:** the real, unmodified `StartSettingsTab.tsx`
+rendered every section (Server/Launch/Extra Settings) with real seeded-profile values. Picking
+"Paper" from the real server-type `<select>` correctly triggered a real
+`minecraft.install.listVersions('paper')` call and rendered the same honest `"fetch failed"`
+this sandbox has produced for every real network call since "A twenty-seventh real page" - not a
+silent failure, the real component's own error-display path. Typing the real test directory's
+path into "Install directory" and clicking "Re-detect from install directory" correctly called
+the real `detectMinecraftLaunchable()` through the full Rust+sidecar pipeline and filled "Jar
+file name" with the real `paper-1.20.1-196.jar` it found on disk - confirming this round's one
+new call site, not just the three reused ones, actually works end to end. No new bug.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2677,6 +2704,15 @@ bug - the only genuinely new thing this round found was a build-tooling gap, not
   exactly. Still unconfirmed: what a real live console feed (actual game-server stdout lines)
   looks like rendered through `xterm.js` - needs a real running Minecraft server process, the
   same category of gap as ARK's own live-console round before its stand-in script existed.
+- **~~Nothing about the Minecraft launch/startup settings tab, or `lib/minecraftDetect.ts`~~ -
+  proven, a thirtieth real page.** See "A thirtieth real page" above: the real, unmodified
+  `StartSettingsTab.tsx` rendered correctly, the real `detectMinecraftLaunchable()` correctly
+  identified a real test jar's filename and server type through the full pipeline, and the real
+  version-list fetch hit the same honest "fetch failed" every other real network call in this
+  sandbox does. Still unconfirmed: a real jar/script install with a genuinely different directory
+  layout per server type (Forge/NeoForge's own launcher scripts vs. a plain `server.jar`), and
+  the rest of `MinecraftServerDetail/` (`BackupLogPanel.tsx`, `BackupsTab.tsx`, `ModsTab.tsx`,
+  `ServerSettingsTab.tsx`, `index.tsx`) and `MinecraftDashboard.tsx` remain completely unported.
 
 ## Where the real Electron coupling lives
 

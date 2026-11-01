@@ -1043,6 +1043,13 @@ fn minecraft_console_get_backlog(profile_id: String, sidecar: tauri::State<Sidec
     sidecar.call("minecraft.console.getBacklog", Some(serde_json::json!({ "profileId": profile_id })))
 }
 
+/// Backs MinecraftServerDetail/StartSettingsTab.tsx - a thirtieth real page. See sidecar.ts's
+/// own comment: real, unmodified lib/minecraftDetect.ts function.
+#[tauri::command]
+fn minecraft_detect_launchable(install_dir: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.detectLaunchable", Some(serde_json::json!({ "installDir": install_dir })))
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -1413,7 +1420,8 @@ fn main() {
             minecraft_profiles_delete,
             minecraft_server_get_status,
             minecraft_server_send_command,
-            minecraft_console_get_backlog
+            minecraft_console_get_backlog,
+            minecraft_detect_launchable
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
