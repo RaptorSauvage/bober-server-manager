@@ -34,3 +34,4 @@ frontend/minecraft-server-management.js
 frontend/minecraft-console.js
 frontend/minecraft-start-settings.js
 frontend/minecraft-backup-log.js
+frontend/minecraft-backups.js

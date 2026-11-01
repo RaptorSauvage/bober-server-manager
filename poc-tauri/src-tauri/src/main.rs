@@ -1070,6 +1070,36 @@ fn minecraft_backup_append_test_log_line(
     )
 }
 
+/// Backs MinecraftServerDetail/BackupsTab.tsx - a thirty-second real page. Same shape as
+/// backup_create/backup_list/backup_delete/backup_restore/backup_open_folder above (ARK's own).
+#[tauri::command]
+fn minecraft_backup_create(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.backup.create", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+#[tauri::command]
+fn minecraft_backup_list(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.backup.list", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+#[tauri::command]
+fn minecraft_backup_delete(file_path: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.backup.delete", Some(serde_json::json!({ "filePath": file_path })))
+}
+
+#[tauri::command]
+fn minecraft_backup_restore(profile_id: String, file_path: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call(
+        "minecraft.backup.restore",
+        Some(serde_json::json!({ "profileId": profile_id, "filePath": file_path }))
+    )
+}
+
+#[tauri::command]
+fn minecraft_backup_open_folder(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.backup.openFolder", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -1443,7 +1473,12 @@ fn main() {
             minecraft_console_get_backlog,
             minecraft_detect_launchable,
             minecraft_backup_get_log,
-            minecraft_backup_append_test_log_line
+            minecraft_backup_append_test_log_line,
+            minecraft_backup_create,
+            minecraft_backup_list,
+            minecraft_backup_delete,
+            minecraft_backup_restore,
+            minecraft_backup_open_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

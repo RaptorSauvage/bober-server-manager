@@ -115,7 +115,10 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   thirty-nine Tauri commands total. The thirtieth (see "A thirtieth real page" below) added
   `minecraft_detect_launchable` - one hundred and forty Tauri commands total. The thirty-first
   (see "A thirty-first real page" below) added `minecraft_backup_get_log` and a test-only
-  `minecraft_backup_append_test_log_line` - one hundred and forty-two Tauri commands total.
+  `minecraft_backup_append_test_log_line` - one hundred and forty-two Tauri commands total. The
+  thirty-second (see "A thirty-second real page" below) added `minecraft_backup_create`/
+  `minecraft_backup_list`/`minecraft_backup_delete`/`minecraft_backup_restore`/
+  `minecraft_backup_open_folder` - one hundred and forty-seven Tauri commands total.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -2267,6 +2270,61 @@ the full push-event pipeline end to end for this new real call pair: sidecar
 what triggers this log in practice (a real `createMinecraftBackup()` run), which needs
 `BackupsTab.tsx` itself, still unported.
 
+### A thirty-second real page: real world backup CRUD, and a confirm() bug this PoC's own Tauri shim surfaced
+
+`MinecraftServerDetail/BackupsTab.tsx` - the Minecraft-side twin of ARK's own already-proven
+`BackupsTab.tsx` (see "A seventh real page"), backed by the rest of `lib/minecraftBackup.ts`'s
+real, unmodified exports: `createMinecraftBackup()` (zips the real world dimension folders with
+`archiver`, no RCON `SaveWorld` step the way ARK's own has - Minecraft's save-off/save-all flush
+already happens over stdin/RCON, proven in "A twenty-ninth real page"), `listMinecraftBackups()`,
+`deleteMinecraftBackup()`, `restoreMinecraftBackup()` (extracts a real zip back over the install
+directory with `adm-zip`), and `openMinecraftBackupFolder()`. Composes the already-proven
+`BackupLogPanel.tsx` directly as a child, and the already-proven `useMinecraftServerStatuses`
+hook for its "stop the server before restoring" gate - neither needed a new window.api surface.
+
+**Confirmed standalone:** `minecraft.backup.create` against a real test `world/` folder produced
+a real, valid zip on disk; `.list`/`.delete` round-tripped it correctly.
+
+**Confirmed through the real compiled app:** pre-seeded a real profile (standalone, before
+launch - same technique as every other round's config.json verification, just used to seed
+instead of just read) with a real `installDir` containing a real `world/level.dat` and a real
+`backupDir`, since this tab itself has no install-directory field of its own. Clicking "Create
+backup now" produced a real zip, the table updated live via the real `onCreated` push event with
+no manual refresh, and the composed `BackupLogPanel.tsx` showed the real honest log trail
+("Server is not running - backing up the world files as they are on disk." →
+"Zipping world into ...zip..." → "Backup created: ...zip (0.0 MB)") - confirming the two
+thirty-first-round push events actually fire from a real operation, not just the test-only
+trigger. Selecting the row and clicking "Delete selected backup" correctly emptied the table.
+
+**A genuine bug, not an environment limitation:** clicking "Restore selected backup" showed no
+visible confirmation dialog at all, yet modifying the real world file and clicking the button
+again made it visibly revert to the backup's content - the restore ran regardless. Root cause,
+confirmed via devtools: `confirmAction()` (`lib/confirmAction.ts`, shared with every
+destructive-action button ARK's own pages already use) calls the bare, synchronous
+`window.confirm(message)` and checks its return value truthily - but Tauri 2's dialog plugin
+polyfills `window.confirm` into an **async** function returning a `Promise`, which this PoC's
+`capabilities/default.json` never granted (`dialog:allow-confirm` etc.), so it immediately
+rejects with "dialog.message not allowed" - confirmed by typing `confirm('test')` into the
+console directly. `confirmAction()` never awaits that promise, so `!confirmAction(message)` sees
+a truthy `Promise` object, not a boolean, and the `if (!confirmAction(...)) return` guard never
+fires - the destructive action proceeds exactly as if the user had clicked "OK", with no
+dialog, no error, and no way to actually cancel. Unlike the native file-dialog gaps (which fail
+loudly - frozen webview, or a real `"fetch failed"`-style error), this one fails *silently in
+the dangerous direction*: every `confirmAction()`-gated button in this whole PoC (ARK's own
+backup/profile-delete buttons included, not just this round's) has been proceeding without real
+confirmation since the very first round that used one, and nothing in any prior round's testing
+happened to notice because the described (removal/overwrite) action is also the one being
+intentionally tested. A real migration would need either `dialog:allow-confirm` granted and
+`confirmAction()` rewritten to `await` the real Tauri dialog API, or a custom in-page confirm
+modal - not a one-line fix, since the whole call site is written against a synchronous contract
+Tauri doesn't honor.
+
+**A second, more ordinary finding:** "Open backup folder" produced a real, honest error -
+`Launcher "gio" "open" ".../backups" failed with ExitStatus(unix_wait_status(512))` - the same
+category of gap as every other `shell.openPath` call in a sandbox with no real desktop file
+manager (see "The reverse direction"), surfaced correctly through the catch path this time,
+unlike the confirm() bug above.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2368,6 +2426,18 @@ what triggers this log in practice (a real `createMinecraftBackup()` run), which
   until the process was killed - confirmed by typing into an unrelated, already-focused text
   field immediately after clicking "Export profile..." and observing no character landed, where
   the same action worked before the click. See "A twenty-fourth real page" above.
+- **A third, worse-than-either native-dialog failure mode: `window.confirm()` doesn't freeze and
+  doesn't error - it silently never blocks anything at all.** Unlike the pick/save dialogs above,
+  Tauri's dialog plugin replaces `window.confirm()` with an async function returning a `Promise`
+  that immediately rejects (this PoC's `capabilities/default.json` never granted
+  `dialog:allow-confirm`). Every real `confirmAction()` call site (`lib/confirmAction.ts`, used
+  by every destructive-action button across both ARK's and Minecraft's pages, not just this
+  round's) calls it synchronously and checks the return value truthily - a `Promise` object is
+  truthy, so the `if (!confirmAction(...)) return` guard these buttons all share never fires,
+  and the destructive action proceeds exactly as if the user had confirmed, with nothing in the
+  UI suggesting anything went differently than normal. Confirmed by modifying a real file on
+  disk, clicking "Restore selected backup" with no visible dialog, and watching the file revert
+  anyway. See "A thirty-second real page" below for the full root-cause trace.
 
 ## What this doesn't prove yet
 
@@ -2761,6 +2831,17 @@ what triggers this log in practice (a real `createMinecraftBackup()` run), which
   what actually triggers this log in normal use - needs `BackupsTab.tsx` itself, plus the rest of
   `MinecraftServerDetail/` (`BackupsTab.tsx`, `ModsTab.tsx`, `ServerSettingsTab.tsx`, `index.tsx`)
   and `MinecraftDashboard.tsx`, still completely unported.
+- **~~Nothing about real world backup create/restore/delete, or what actually triggers the
+  backup log~~ - proven, a thirty-second real page, and a real confirm() bug found.** See
+  "A thirty-second real page" above: `createMinecraftBackup()`/`listMinecraftBackups()`/
+  `deleteMinecraftBackup()`/`restoreMinecraftBackup()`/`openMinecraftBackupFolder()` all
+  confirmed through the real compiled app against a real world folder, including the composed
+  `BackupLogPanel.tsx` showing the real log trail from an actual backup run. Also found: every
+  `confirmAction()`-gated destructive action in this entire PoC (not just this round's) has been
+  silently skipping its own confirmation since the first round that used one, because Tauri's
+  dialog plugin breaks `window.confirm()`'s synchronous contract - see the dedicated Findings
+  bullet above. Still unconfirmed: `ModsTab.tsx`, `ServerSettingsTab.tsx`, `index.tsx` (the tab
+  shell itself, which needs both of those first) and `MinecraftDashboard.tsx`.
 
 ## Where the real Electron coupling lives
 

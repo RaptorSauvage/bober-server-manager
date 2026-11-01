@@ -167,7 +167,16 @@ import {
 import { getStatus as getMinecraftStatus, minecraftServerEvents, sendStdinCommand, getConsoleBacklog, minecraftConsoleEvents } from '../../src/main/lib/minecraftProcess'
 import { sendMinecraftRconCommand } from '../../src/main/lib/minecraftRcon'
 import { detectMinecraftLaunchable } from '../../src/main/lib/minecraftDetect'
-import { getMinecraftBackupLog, minecraftBackupEvents, logMinecraftBackup } from '../../src/main/lib/minecraftBackup'
+import {
+  getMinecraftBackupLog,
+  minecraftBackupEvents,
+  logMinecraftBackup,
+  createMinecraftBackup,
+  listMinecraftBackups,
+  deleteMinecraftBackup,
+  restoreMinecraftBackup,
+  openMinecraftBackupFolder
+} from '../../src/main/lib/minecraftBackup'
 import { app, shell } from 'electron'
 import { send, resolveRustResponse } from './rpcToRust'
 import type { GameId } from '../../shared/games'
@@ -1285,6 +1294,35 @@ const methods: Record<string, (params: unknown) => unknown> = {
     const { profileId, message, level } = params as { profileId: string; message: string; level?: 'info' | 'error' }
     logMinecraftBackup(profileId, message, level ?? 'info')
     return { ok: true }
+  },
+  // Real, unmodified minecraftBackup.ts CRUD - backs MinecraftServerDetail/BackupsTab.tsx, a
+  // thirty-second real page. Mirrors ipc/minecraftBackup.ts's own requireProfile() shape exactly.
+  'minecraft.backup.create': (params) => {
+    const profile = getMinecraftProfile((params as { profileId: string }).profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${(params as { profileId: string }).profileId}`)
+    return createMinecraftBackup(profile)
+  },
+  'minecraft.backup.list': (params) => {
+    const profile = getMinecraftProfile((params as { profileId: string }).profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${(params as { profileId: string }).profileId}`)
+    return listMinecraftBackups(profile)
+  },
+  'minecraft.backup.delete': (params) => {
+    deleteMinecraftBackup((params as { filePath: string }).filePath)
+    return { ok: true }
+  },
+  'minecraft.backup.restore': (params) => {
+    const { profileId, filePath } = params as { profileId: string; filePath: string }
+    const profile = getMinecraftProfile(profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${profileId}`)
+    restoreMinecraftBackup(profile, filePath)
+    return { ok: true }
+  },
+  'minecraft.backup.openFolder': async (params) => {
+    const profile = getMinecraftProfile((params as { profileId: string }).profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${(params as { profileId: string }).profileId}`)
+    await openMinecraftBackupFolder(profile)
+    return { ok: true }
   }
 }
 
@@ -1311,6 +1349,7 @@ minecraftConsoleEvents.on('line', (profileId: string, line) =>
 minecraftBackupEvents.on('log', (profileId: string, entry) =>
   send({ event: 'minecraft-backup-log-entry', data: { profileId, entry } })
 )
+minecraftBackupEvents.on('created', (profileId: string) => send({ event: 'minecraft-backup-created', data: profileId }))
 managerLogEvents.on('log', (entry) => send({ event: 'manager-log-entry', data: entry }))
 // A third independent push source: serverProcess.ts's own `serverEvents` 'status' emitter -
 // the one every server card/detail page in the real app subscribes to for live state
