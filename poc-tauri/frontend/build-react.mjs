@@ -33,7 +33,8 @@ const pages = [
   'map-manager',
   'ini-templates',
   'files',
-  'mods'
+  'mods',
+  'settings'
 ]
 
 for (const page of pages) {

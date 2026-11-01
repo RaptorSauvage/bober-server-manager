@@ -92,7 +92,10 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   `file_browser_write_ini`/`file_browser_ini_history`/`file_browser_ini_history_diff`/
   `file_browser_ini_restore` - reaching the round-number hundredth Tauri command in this PoC.
   The twenty-third (see "A twenty-third real page" below) added `mods_save`/`mods_parse_text`/
-  `mods_reconcile_from_ini`/`ark_mods_search`/`ark_mods_info`.
+  `mods_reconcile_from_ini`/`ark_mods_search`/`ark_mods_info`. The twenty-fourth (see "A
+  twenty-fourth real page" below) added `dialog_save_profile_file` (a fifth sidecar-free
+  command) and `server_preview_launch_command`/`system_open_data_dir_folder`/`profiles_export`
+  - one hundred and eight Tauri commands total.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -1934,6 +1937,56 @@ back to an empty list, confirmed again on disk, leaving the sandbox exactly as i
 bug - every real call site, including the deliberately-contrasted honest network-gap shape, 
 matched its own standalone prediction.
 
+### A twenty-fourth real page: a debounced live preview, and a fifth sidecar-free dialog
+
+`ServerDetail/SettingsTab.tsx` is the main per-server settings form - the first real page in this
+PoC with a debounced derived-state effect: every form edit re-calls
+`window.api.server.previewLaunchCommand(form)` 300ms after the last keystroke, which round-trips
+through the sidecar to the real, unmodified `getExecutablePath()`/`buildLaunchArgs()`
+(`lib/serverProcess.ts`) - the exact same function pair `startServer()` itself calls, so the
+textarea genuinely shows what would be launched, not a parallel reimplementation of the flag
+logic. `window.api.system.openDataDirFolder` is a third real call site of the
+`shell.openPath` round trip (see "The reverse direction") through a function
+(`lib/systemFolders.ts`'s `openDataDirFolder`) never exercised by an earlier round.
+`window.api.profiles.export`/`dialog.saveProfileFile` are the new pieces: `profiles.export`
+round-trips through the sidecar to the real, unmodified `serializeProfile()`
+(`lib/profileExport.ts`) and a plain `fs.writeFileSync` (same shape as `ipc/profiles.ts`'s own
+handler), while `dialog.saveProfileFile` is a **fifth sidecar-free command**
+(`dialog_save_profile_file`), same architectural class as `dialog_select_directory`/
+`dialog_select_file`/`dialog_select_ini_file`/`window_focus` - the real `dialog.ts` is a
+main-process/window-level concern in Electron too, so a native Save-File dialog invoked straight
+from Rust is the natural port, not a sidecar RPC call standing in for something it never was.
+Everything else on the page (`maps.list`, `customMaps.list`, `profiles.save`, `mods.save`,
+`dialog.selectDirectory`) is already proven by earlier rounds and reused unchanged.
+
+**Confirmed standalone first**: `server.previewLaunchCommand` returned the real, correct
+executable path and flag list for a real test profile (the same exact ARK: Survival Ascended
+`?Port=`/`?RCONPort=` query-string-then-flags shape "The actual headline case" already proved
+`startServer()` itself produces), and `profiles.export` wrote a real pretty-printed
+`serializeProfile()` JSON file to disk - confirmed by reading it back directly, not just trusting
+the RPC's `{ ok: true }`. `system.openDataDirFolder` correctly produced the real
+`shell-request`/`openPath` push event (same mechanism "The reverse direction" proved, a new
+caller rather than a new path) - left unresolved in the standalone harness exactly as expected,
+since nothing on the Node side is listening for the Rust reply outside the real compiled app.
+
+**Confirmed through the real compiled app**: the real, unmodified form rendered every seeded
+field correctly (name, install dir, ports, max players, group, cluster/Discord settings), the
+debounced launch-command preview computed and displayed the real live command within the full
+Rust+sidecar pipeline (not just standalone) using the exact buildLaunchArgs() output, and an
+edited Name field produced a real `profiles.save` write confirmed directly in
+`~/.tauri-poc-bober-manager/config.json` on disk (both before and after reverting it back for
+cleanup). Clicking "Export profile..." correctly invoked the real `dialog_save_profile_file`
+Rust command - but hit the exact same sandbox limitation "A second real page" already documented
+for `dialog_select_directory`: the native dialog does not visibly render or complete in this
+no-window-manager Xvfb sandbox (no new X11 window ever appeared, confirmed via `xdotool search`),
+and unlike the earlier pick dialogs, this save dialog left the whole webview unresponsive to
+further input until the app was killed - a stricter version of the same already-known
+architectural gap, not a new one: GTK's save-file chooser evidently blocks harder than its
+pick-folder/pick-file siblings did when there's no window manager to host it. No new bug in the
+ported logic itself - every real call site that could be confirmed (the preview, the save, the
+openDataDirFolder push event) matched its own standalone prediction exactly; only the native
+dialog's own happy path remains unconfirmed, same class of gap as every other picker in this PoC.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2019,6 +2072,22 @@ matched its own standalone prediction.
   legitimately-nullable method's result - the same kind of per-call-site fix the two bullets
   above needed, which this one deliberately avoided needing again. See "An eighth real page"
   above.
+- **A debounced derived-state effect (re-fetch 300ms after the last edit) ports with zero
+  changes, and genuinely reflects unsaved form state, not just the last-saved profile.** The
+  real `SettingsTab.tsx` recomputes `server.previewLaunchCommand(form)` from `form`, not
+  `profile` - confirmed live in the real compiled app, typing into the Name field and watching
+  the already-displayed launch command (which doesn't even reference the name) stay stable while
+  other field edits (ports, max players) immediately redrove a fresh real `buildLaunchArgs()`
+  call once the debounce elapsed. See "A twenty-fourth real page" above.
+- **Not every native dialog fails the same way in this sandbox - `blocking_save_file()` is
+  strictly worse than `blocking_pick_folder()`/`blocking_pick_file()`/`blocking_pick_file()`
+  with filters, confirmed by comparing their actual effect on the running app, not assumed from
+  the shared "native dialog" category.** The pick dialogs ("A second real page",
+  `dialog_select_ini_file`) leave the rest of the app responsive even though the dialog itself
+  never visibly renders; `dialog_save_profile_file` froze the entire webview to further input
+  until the process was killed - confirmed by typing into an unrelated, already-focused text
+  field immediately after clicking "Export profile..." and observing no character landed, where
+  the same action worked before the click. See "A twenty-fourth real page" above.
 
 ## What this doesn't prove yet
 
@@ -2341,6 +2410,17 @@ matched its own standalone prediction.
   sandbox's own real unset `curseforgeApiKey`. Still unconfirmed: a real CurseForge-key-present
   search/enrichment result (needs a real API key, which this PoC has deliberately never had
   configured, the same category of gap as every other "needs a real external credential" case).
+- **~~Nothing about the main per-server settings form, or a debounced live-preview effect~~ -
+  proven, a twenty-fourth real page.** See "A twenty-fourth real page" above: the real,
+  unmodified `SettingsTab.tsx` rendered every seeded field correctly, the debounced
+  `server.previewLaunchCommand` effect computed and displayed the real live launch command
+  within the full compiled app (not just standalone), and a field edit produced a real
+  `profiles.save` write confirmed on disk. Still unconfirmed: the real `dialog_save_profile_file`
+  Save-File dialog's own happy path (same architectural gap as every other native picker in this
+  PoC, but a stricter failure mode - see its own bullet above) and `window.api.system
+  .openDataDirFolder`'s real OS-level "open in file manager" result (same already-accepted gap
+  as every other `shell.openPath` call site - this sandbox has no desktop session to observe it
+  opening in).
 
 ## Where the real Electron coupling lives
 

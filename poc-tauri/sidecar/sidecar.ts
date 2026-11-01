@@ -61,11 +61,18 @@ import {
   getStatus,
   serverEvents,
   getExecutablePath,
+  buildLaunchArgs,
   adoptPersistedProcesses
 } from '../../src/main/lib/serverProcess'
 import { doStartServer, doStopServer, doRestartServer, doKillServer, doUpdateServer } from '../../src/main/lib/serverActions'
 import { readLogBacklog, parseLogChunkWithDate, createLogEventCaches } from '../../src/main/lib/logEvents'
-import { openProfilesFolder, openServerConfigFolder, openServerSavedArksFolder, openServerSaveGamesFolder } from '../../src/main/lib/systemFolders'
+import {
+  openProfilesFolder,
+  openServerConfigFolder,
+  openServerSavedArksFolder,
+  openServerSaveGamesFolder,
+  openDataDirFolder
+} from '../../src/main/lib/systemFolders'
 import { copyProfile, moveProfile } from '../../src/main/lib/profileCopyMove'
 import { startDiscordBot, stopDiscordBot, getDiscordBotStatus } from '../../src/main/lib/discordBot'
 import { applyWebDashboardSettings, stopWebDashboard, getWebDashboardStatus } from '../../src/main/lib/webDashboard'
@@ -109,6 +116,7 @@ import { listCustomMaps, addCustomMap, updateCustomMap, deleteCustomMap } from '
 import { syncAseModsToIni, reconcileAseModsFromIni } from '../../src/main/lib/gameConfigWrite'
 import { parseImportedMods } from '../../src/main/lib/modsExport'
 import { searchArkMods, getArkModsInfo } from '../../src/main/lib/arkMods'
+import { serializeProfile } from '../../src/main/lib/profileExport'
 import {
   listFileBrowserEntries,
   resolveFileBrowserPath,
@@ -917,7 +925,22 @@ const methods: Record<string, (params: unknown) => unknown> = {
     return updated
   },
   'arkMods.search': (params) => searchArkMods((params as { query: string }).query),
-  'arkMods.info': (params) => getArkModsInfo((params as { modIds: string[] }).modIds)
+  'arkMods.info': (params) => getArkModsInfo((params as { modIds: string[] }).modIds),
+  'server.previewLaunchCommand': (params) => {
+    const profile = params as ServerProfile
+    return { executable: getExecutablePath(profile), args: buildLaunchArgs(profile) }
+  },
+  'system.openDataDirFolder': async () => {
+    await openDataDirFolder()
+    return { ok: true }
+  },
+  'profiles.export': (params) => {
+    const { profileId, filePath } = params as { profileId: string; filePath: string }
+    const profile = listProfiles().find((p) => p.id === profileId)
+    if (!profile) throw new Error(`Profile ${profileId} not found`)
+    fs.writeFileSync(filePath, serializeProfile(profile), 'utf-8')
+    return { ok: true }
+  }
 }
 
 let stopConsoleWatch: (() => void) | null = null

@@ -257,6 +257,21 @@ fn player_roster_list(profile_id: String, sidecar: tauri::State<SidecarHandle>) 
     sidecar.call("playerRoster.list", Some(serde_json::json!({ "profileId": profile_id })))
 }
 
+/// Backs ServerDetail/SettingsTab.tsx's "Export..." button (window.api.dialog.saveProfileFile) -
+/// same architectural class as dialog_select_file/dialog_select_ini_file (native dialog, no
+/// sidecar involvement), but a save dialog rather than a pick dialog, matching the real
+/// dialog.ts's own showSaveDialog call with a suggested default filename.
+#[tauri::command]
+fn dialog_save_profile_file(default_name: String, app_handle: tauri::AppHandle) -> Option<String> {
+    app_handle
+        .dialog()
+        .file()
+        .set_file_name(&format!("{}.json", default_name))
+        .add_filter("JSON", &["json"])
+        .blocking_save_file()
+        .map(|p| p.to_string())
+}
+
 #[tauri::command]
 fn player_roster_kick(
     profile_id: String,
@@ -799,6 +814,23 @@ fn ark_mods_info(mod_ids: Vec<String>, sidecar: tauri::State<SidecarHandle>) -> 
     sidecar.call("arkMods.info", Some(serde_json::json!({ "modIds": mod_ids })))
 }
 
+/// Backs ServerDetail/SettingsTab.tsx - a twenty-fourth real page. See sidecar.ts's own
+/// comment: real, unmodified serverProcess.ts/systemFolders.ts/profileExport.ts functions.
+#[tauri::command]
+fn server_preview_launch_command(profile: Value, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("server.previewLaunchCommand", Some(profile))
+}
+
+#[tauri::command]
+fn system_open_data_dir_folder(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("system.openDataDirFolder", None)
+}
+
+#[tauri::command]
+fn profiles_export(profile_id: String, file_path: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("profiles.export", Some(serde_json::json!({ "profileId": profile_id, "filePath": file_path })))
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -1037,6 +1069,7 @@ fn main() {
             dialog_select_directory,
             dialog_select_file,
             dialog_select_ini_file,
+            dialog_save_profile_file,
             window_focus,
             player_roster_list,
             player_roster_kick,
@@ -1135,7 +1168,10 @@ fn main() {
             mods_parse_text,
             mods_reconcile_from_ini,
             ark_mods_search,
-            ark_mods_info
+            ark_mods_info,
+            server_preview_launch_command,
+            system_open_data_dir_folder,
+            profiles_export
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
