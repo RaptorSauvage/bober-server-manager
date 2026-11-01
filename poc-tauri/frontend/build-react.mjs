@@ -35,7 +35,8 @@ const pages = [
   'files',
   'mods',
   'settings',
-  'server-detail'
+  'server-detail',
+  'data-settings'
 ]
 
 for (const page of pages) {

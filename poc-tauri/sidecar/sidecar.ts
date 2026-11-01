@@ -74,7 +74,7 @@ import {
   openDataDirFolder
 } from '../../src/main/lib/systemFolders'
 import { copyProfile, moveProfile } from '../../src/main/lib/profileCopyMove'
-import { startDiscordBot, stopDiscordBot, getDiscordBotStatus } from '../../src/main/lib/discordBot'
+import { startDiscordBot, stopDiscordBot, getDiscordBotStatus, applyDiscordBotSettings, restartDiscordBot } from '../../src/main/lib/discordBot'
 import { applyWebDashboardSettings, stopWebDashboard, getWebDashboardStatus } from '../../src/main/lib/webDashboard'
 import { getSystemStaticInfo, getNetworkUsage } from '../../src/main/lib/systemStats'
 import { readStatsHistory, readClusterStatsHistoryForGroups } from '../../src/main/lib/statsHistory'
@@ -127,7 +127,33 @@ import {
   diffIniHistoryEntry,
   restoreIniHistoryEntry
 } from '../../src/main/lib/fileBrowser'
-import { shell } from 'electron'
+import { applyLaunchOnStartup } from '../../src/main/lib/launchOnStartup'
+import { applyIniLockSetting } from '../../src/main/lib/iniLock'
+import { syncAllPlayerJoinAlertWatches } from '../../src/main/lib/playerJoinAlertWatch'
+import { syncAllPlayerActivityWatches } from '../../src/main/lib/playerActivityWatch'
+import { getDefaultDataDir } from '../../src/main/lib/dataDir'
+import { getLocalNetworkIps } from '../../src/main/lib/webDashboard'
+import { appUpdateEvents, checkForUpdate, installDownloadedUpdate, getAppUpdateStatus } from '../../src/main/lib/appUpdater'
+import { serializeClusterBundle, parseClusterBundle } from '../../src/main/lib/clusterExport'
+import {
+  applyScheduledRestart,
+  applyScheduledDinoWipe,
+  applyScheduledRconCommands,
+  applyScheduledMaintenance
+} from '../../src/main/lib/scheduledActions'
+import { applyMinecraftScheduledRestart } from '../../src/main/lib/minecraftScheduledActions'
+import { applyMinecraftBackupSchedule } from '../../src/main/lib/minecraftBackupSchedule'
+import { listMinecraftProfiles, saveMinecraftProfile } from '../../src/main/store'
+import {
+  listWebDashboardAccessTokens,
+  saveWebDashboardAccessToken,
+  deleteWebDashboardAccessToken,
+  listWebDashboardApiKeys,
+  saveWebDashboardApiKey,
+  deleteWebDashboardApiKey
+} from '../../src/main/store'
+import { hashPassword, generateApiKeyId, generateApiKeySecret, buildApiKey } from '../../src/main/lib/auth'
+import { app, shell } from 'electron'
 import { send, resolveRustResponse } from './rpcToRust'
 import type { GameId } from '../../shared/games'
 import type {
@@ -136,7 +162,8 @@ import type {
   IniTemplateProfileOverride,
   ModEvent,
   ServerMod,
-  ServerProfile
+  ServerProfile,
+  WebDashboardRole
 } from '../../shared/types'
 
 interface RpcRequest {
@@ -446,7 +473,6 @@ const methods: Record<string, (params: unknown) => unknown> = {
   // dashboard.start) but not exposed to the frontend directly until Dashboard.tsx needed them
   // (it reads/writes registeredGroups/groupOrder/collapsedGroups through these).
   'settings.get': () => getSettings(),
-  'settings.save': (params) => saveSettings(params as AppSettings),
   // Real, unmodified deleteProfile()/setProfileOrder() from store.ts - the two profiles.*
   // writes profiles.save/.copy/.move above didn't need (delete, and the dashboard's own
   // drag-to-reorder).
@@ -940,6 +966,231 @@ const methods: Record<string, (params: unknown) => unknown> = {
     if (!profile) throw new Error(`Profile ${profileId} not found`)
     fs.writeFileSync(filePath, serializeProfile(profile), 'utf-8')
     return { ok: true }
+  },
+  // Real, unmodified ipc/settings.ts handler body - saveSettings() plus every real follow-up
+  // re-application it does (web dashboard, Discord bot, launch-on-startup, ini lock,
+  // player-join-alert/player-activity watchers). applyLaunchOnStartup calls the real
+  // electronShim.app.setLoginItemSettings stub (see electronShim.ts's own comment) rather than
+  // throwing, same "small enough to just satisfy" shape as the ipcMain stub above it. Replaces
+  // this PoC's own earlier, bare `saveSettings(params)`-only version (dashboard-entry.tsx/
+  // steamcmd-entry.tsx used that narrower shape for their own settings writes) - same RPC
+  // method name, so those two entry files now get the real full re-application too, which is
+  // strictly more correct, not a behavior change they depended on.
+  'settings.save': async (params) => {
+    const settings = params as AppSettings
+    const saved = saveSettings(settings)
+    applyWebDashboardSettings(saved)
+    await applyDiscordBotSettings(saved)
+    applyLaunchOnStartup(saved)
+    applyIniLockSetting(saved.iniLockEnabled, listProfiles())
+    syncAllPlayerJoinAlertWatches()
+    syncAllPlayerActivityWatches()
+    return saved
+  },
+  // Real, unmodified getDefaultDataDir() (lib/dataDir.ts) - a third real call site of
+  // electronShim's app.getPath('documents'), after managerLog.ts's getDataDir() and
+  // customMaps.ts's own use of it.
+  'dataDir.getDefault': () => getDefaultDataDir(),
+  // Real, unmodified getLocalNetworkIps() (lib/webDashboard.ts) - plain os.networkInterfaces()
+  // filtering, no Electron coupling at all.
+  'webDashboard.getLocalIps': () => getLocalNetworkIps(),
+  // Real, unmodified restartDiscordBot() (lib/discordBot.ts) - getDiscordBotStatus/stopDiscordBot
+  // were already proven under the 'bot.*' RPC names; this is the one new real call site
+  // DataSettingsView.tsx itself needs (its own "Restart bot"/"Stop bot" buttons reuse the
+  // already-proven discordBot.status/stop shape via new RPC names below for a 1:1 real
+  // ipc/discordBot.ts handler match).
+  'discordBot.status': () => getDiscordBotStatus(),
+  'discordBot.restart': async () => {
+    await restartDiscordBot()
+    return getDiscordBotStatus()
+  },
+  'discordBot.stop': () => {
+    stopDiscordBot()
+    return getDiscordBotStatus()
+  },
+  // Real, unmodified app.getVersion()/getAppUpdateStatus() - trivial, no network/Electron-
+  // internals risk either way.
+  'appUpdate.getVersion': () => app.getVersion(),
+  'appUpdate.status': () => getAppUpdateStatus(),
+  // Real, unmodified checkForUpdate() (lib/appUpdater.ts) - gated on the real `app.isPackaged`
+  // BEFORE it ever touches electron-updater/autoUpdater, and electronShim's app.isPackaged is
+  // always false, so this deterministically takes the early "Update checks only work in a
+  // packaged build, not in dev." honest-error path in this sandbox, the same honest-gap shape
+  // as checkForUpdate()'s own real dev-mode behavior - never a PoC-only stand-in. See "A
+  // twenty-sixth real page" in README.md.
+  'appUpdate.check': () => {
+    checkForUpdate()
+    return { ok: true }
+  },
+  // Real, unmodified installDownloadedUpdate() - unreachable in this sandbox in practice (the
+  // real UI only enables its button once status reaches 'downloaded', which checkForUpdate()
+  // above can never reach here), wired for completeness rather than left as a stub.
+  'appUpdate.install': () => {
+    installDownloadedUpdate()
+    return { ok: true }
+  },
+  // Real, unmodified serializeClusterBundle() (lib/clusterExport.ts) - pretty-printed JSON of
+  // every ARK/Minecraft profile plus Settings, written straight to disk exactly like the real
+  // ipc/cluster.ts handler.
+  'cluster.export': (params) => {
+    const { filePath } = params as { filePath: string }
+    fs.writeFileSync(filePath, serializeClusterBundle(), 'utf-8')
+    return { ok: true }
+  },
+  // Real, unmodified parseClusterBundle() plus every real per-profile re-application the real
+  // ipc/cluster.ts handler does - the first real call site in this PoC to touch the Minecraft
+  // profile store (listMinecraftProfiles/saveMinecraftProfile) and its own scheduled-action
+  // appliers (applyMinecraftScheduledRestart/applyMinecraftBackupSchedule), proving that real
+  // subsystem ports with zero changes too, not just the ARK one every earlier round exercised.
+  'cluster.import': async (params) => {
+    const { filePath, includeSettings } = params as { filePath: string; includeSettings: boolean }
+    const existing = listProfiles()
+    const existingMinecraft = listMinecraftProfiles()
+    const bundle = parseClusterBundle(
+      fs.readFileSync(filePath, 'utf-8'),
+      existing.map((p) => p.name),
+      existingMinecraft.map((p) => p.name)
+    )
+
+    let profiles = existing
+    for (const profile of bundle.profiles) {
+      profiles = saveProfile(profile)
+      applyBackupSchedule(profile)
+      applyScheduledRestart(profile)
+      applyScheduledDinoWipe(profile)
+      applyScheduledRconCommands(profile)
+      applyScheduledMaintenance(profile)
+    }
+
+    let minecraftProfiles = existingMinecraft
+    for (const profile of bundle.minecraftProfiles) {
+      minecraftProfiles = saveMinecraftProfile(profile)
+      applyMinecraftScheduledRestart(profile)
+      applyMinecraftBackupSchedule(profile)
+    }
+
+    let settings: AppSettings = getSettings()
+    if (includeSettings) {
+      settings = saveSettings(bundle.settings)
+      applyWebDashboardSettings(settings)
+      await applyDiscordBotSettings(settings)
+      applyLaunchOnStartup(settings)
+      applyIniLockSetting(settings.iniLockEnabled, profiles)
+    }
+
+    return {
+      profiles,
+      minecraftProfiles,
+      settings,
+      addedProfileCount: bundle.profiles.length,
+      addedMinecraftProfileCount: bundle.minecraftProfiles.length,
+      settingsReplaced: includeSettings
+    }
+  },
+  // Real, unmodified webDashboardAccessTokens/webDashboardApiKeys CRUD (store.ts) plus
+  // lib/auth.ts's real hashPassword/generateApiKeyId/generateApiKeySecret/buildApiKey - the
+  // exact same functions ipc/webDashboardAccessTokens.ts/ipc/webDashboardApiKeys.ts call,
+  // deliberately desktop-only (never exposed over the web dashboard's own HTTP API) in the
+  // real app too, so this is just the ordinary sidecar RPC round trip, no new architectural
+  // shape.
+  'webDashboardAccessTokens.list': () =>
+    listWebDashboardAccessTokens().map((t) => ({
+      id: t.id,
+      label: t.label,
+      role: t.role,
+      profileIds: t.profileIds,
+      createdAt: t.createdAt
+    })),
+  'webDashboardAccessTokens.create': async (params) => {
+    const { label, role, profileIds } = params as {
+      label: string
+      role: WebDashboardRole
+      profileIds: string[] | null
+    }
+    const trimmed = label.trim()
+    if (!trimmed) throw new Error('Label is required')
+    const id = generateApiKeyId()
+    const secret = generateApiKeySecret()
+    const secretHash = await hashPassword(secret)
+    const normalizedProfileIds = profileIds && profileIds.length > 0 ? profileIds : null
+    saveWebDashboardAccessToken({
+      id,
+      label: trimmed,
+      secretHash,
+      role,
+      profileIds: normalizedProfileIds,
+      createdAt: Date.now()
+    })
+    return {
+      token: buildApiKey(id, secret),
+      tokens: listWebDashboardAccessTokens().map((t) => ({
+        id: t.id,
+        label: t.label,
+        role: t.role,
+        profileIds: t.profileIds,
+        createdAt: t.createdAt
+      }))
+    }
+  },
+  'webDashboardAccessTokens.update': (params) => {
+    const { id, updates } = params as {
+      id: string
+      updates: { label?: string; role?: WebDashboardRole; profileIds?: string[] | null }
+    }
+    const existing = listWebDashboardAccessTokens().find((t) => t.id === id)
+    if (!existing) throw new Error('Unknown access token')
+    const label = updates.label !== undefined ? updates.label.trim() : existing.label
+    if (!label) throw new Error('Label is required')
+    const role = updates.role ?? existing.role
+    const profileIds = updates.profileIds !== undefined ? updates.profileIds : existing.profileIds
+    const normalizedProfileIds = profileIds && profileIds.length > 0 ? profileIds : null
+    saveWebDashboardAccessToken({ ...existing, label, role, profileIds: normalizedProfileIds })
+    return listWebDashboardAccessTokens().map((t) => ({
+      id: t.id,
+      label: t.label,
+      role: t.role,
+      profileIds: t.profileIds,
+      createdAt: t.createdAt
+    }))
+  },
+  'webDashboardAccessTokens.delete': (params) => {
+    const { id } = params as { id: string }
+    return deleteWebDashboardAccessToken(id).map((t) => ({
+      id: t.id,
+      label: t.label,
+      role: t.role,
+      profileIds: t.profileIds,
+      createdAt: t.createdAt
+    }))
+  },
+  'webDashboardApiKeys.list': () =>
+    listWebDashboardApiKeys().map((k) => ({ id: k.id, label: k.label, role: k.role, createdAt: k.createdAt })),
+  'webDashboardApiKeys.create': async (params) => {
+    const { label, role } = params as { label: string; role: WebDashboardRole }
+    const trimmed = label.trim()
+    if (!trimmed) throw new Error('Label is required')
+    const id = generateApiKeyId()
+    const secret = generateApiKeySecret()
+    const secretHash = await hashPassword(secret)
+    saveWebDashboardApiKey({ id, label: trimmed, secretHash, role, createdAt: Date.now() })
+    return {
+      key: buildApiKey(id, secret),
+      keys: listWebDashboardApiKeys().map((k) => ({ id: k.id, label: k.label, role: k.role, createdAt: k.createdAt }))
+    }
+  },
+  'webDashboardApiKeys.update': (params) => {
+    const { id, updates } = params as { id: string; updates: { label?: string; role?: WebDashboardRole } }
+    const existing = listWebDashboardApiKeys().find((k) => k.id === id)
+    if (!existing) throw new Error('Unknown API key')
+    const label = updates.label !== undefined ? updates.label.trim() : existing.label
+    if (!label) throw new Error('Label is required')
+    const role = updates.role ?? existing.role
+    saveWebDashboardApiKey({ ...existing, label, role })
+    return listWebDashboardApiKeys().map((k) => ({ id: k.id, label: k.label, role: k.role, createdAt: k.createdAt }))
+  },
+  'webDashboardApiKeys.delete': (params) => {
+    const { id } = params as { id: string }
+    return deleteWebDashboardApiKey(id).map((k) => ({ id: k.id, label: k.label, role: k.role, createdAt: k.createdAt }))
   }
 }
 
@@ -970,6 +1221,11 @@ backupEvents.on('log', (profileId: string, entry) => send({ event: 'backup-log-e
 // subscription, no explicit arm call needed" shape as every push source above except
 // lib/schedule.ts's own (see registerBackupScheduleWatcher below).
 steamcmdUpdateEvents.on('log', (profileId: string) => send({ event: 'steamcmd-update-log-changed', data: profileId }))
+// A seventh: lib/appUpdater.ts's own `appUpdateEvents` - same module-level EventEmitter.on
+// shape as every push source above. checkForUpdate() below is gated on the real
+// `app.isPackaged` (electronShim's is always false), so in this sandbox the only status this
+// ever actually pushes is a single 'error' - see "A twenty-sixth real page" in README.md.
+appUpdateEvents.on('status', (status) => send({ event: 'app-update-status-changed', data: status }))
 
 // Real, unmodified adoptPersistedProcesses() - the real app's own answer to "what happens to a
 // running server if the Manager itself crashes or restarts": startServer() launches it detached

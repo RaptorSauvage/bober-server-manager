@@ -97,7 +97,14 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   command) and `server_preview_launch_command`/`system_open_data_dir_folder`/`profiles_export`
   - one hundred and eight Tauri commands total. The twenty-fifth (see "A twenty-fifth real
   page" below) added none at all - a pure frontend composition of eight already-proven pages,
-  same shape as the eighteenth round.
+  same shape as the eighteenth round. The twenty-sixth (see "A twenty-sixth real page" below)
+  added `settings_save` (reusing an existing command), `data_dir_get_default`,
+  `web_dashboard_get_local_ips`, `discord_bot_status`/`discord_bot_restart`/`discord_bot_stop`,
+  `app_update_get_version`/`app_update_check`/`app_update_status`/`app_update_install`,
+  `cluster_export`/`cluster_import`, `web_dashboard_access_tokens_list`/`_create`/`_update`/
+  `_delete`, `web_dashboard_api_keys_list`/`_create`/`_update`/`_delete`, and two more
+  sidecar-free dialogs (`dialog_save_cluster_bundle_file`/`dialog_select_cluster_bundle_file`,
+  a sixth and seventh) - one hundred and thirty Tauri commands total.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -2016,6 +2023,77 @@ a single unstyled or misrendered element. No new bug - the real tab-switching lo
 no changes, and every already-proven `window.api` method remained reachable, unchanged, from
 inside the composed shell.
 
+### A twenty-sixth real page: the widest backend surface yet, and a real new bug
+
+`DataSettingsView.tsx` is the app-wide Settings screen - by far the widest real backend surface
+wired in a single round so far: `settings.save` (the real `ipc/settings.ts` handler body, with
+every real follow-up re-application it does - web dashboard, Discord bot, launch-on-startup, ini
+lock, player-join-alert/player-activity watchers), `dataDir.getDefault`, `webDashboard.
+getLocalIps`, `discordBot.restart`, the real `lib/appUpdater.ts` (`appUpdate.getVersion`/
+`.status`/`.check`/`.install`), `cluster.export`/`.import` (the first real call site in this PoC
+to touch the Minecraft profile store - `listMinecraftProfiles`/`saveMinecraftProfile`/
+`applyMinecraftScheduledRestart`/`applyMinecraftBackupSchedule` - proving that subsystem ports
+with zero changes too, not just the ARK one every earlier round exercised), and the
+`webDashboardAccessTokens`/`webDashboardApiKeys` CRUD its two real child components
+(`AccessTokensSection.tsx`, `ApiKeysSection.tsx`) need. Two new sidecar-free native dialogs
+(`dialog_save_cluster_bundle_file`/`dialog_select_cluster_bundle_file`) round out the set - 130
+Tauri commands total. `electronShim.ts` grew a third stub method, `app.setLoginItemSettings`
+(a no-op; `applyLaunchOnStartup` already wraps its one call to it in a try/catch for exactly
+this "unsupported environment" case in the real app too).
+
+**`checkForUpdate()` is safe to call for real in this sandbox, confirmed by reading its own
+source first, not assumed.** It checks the real `app.isPackaged` *before* ever touching
+`electron-updater`'s `autoUpdater`, and `electronShim.ts`'s `isPackaged` is always `false` - so
+calling it deterministically takes the real, honest "Update checks only work in a packaged
+build, not in dev." error path, the same shape as every other build-vs-dev honest gate in the
+real app, never a PoC-only stand-in. `installDownloadedUpdate()` is wired too, for completeness,
+but unreachable in practice: the real UI only enables its button once status reaches
+`'downloaded'`, which `checkForUpdate()` can never reach here.
+
+**Confirmed standalone first**: `settings.save` round-tripped a full real settings object with
+no error (the new `electronShim.app.setLoginItemSettings` stub absorbing `applyLaunchOnStartup`'s
+call cleanly); `webDashboardAccessTokens.create`/`webDashboardApiKeys.create` each produced a
+real generated secret and a real hash-backed summary; `appUpdate.check` produced exactly the
+predicted honest error, both as its RPC result and as a real `app-update-status-changed` push
+event; `cluster.export` wrote a real pretty-printed bundle to disk; `cluster.import`'d (with
+`includeSettings: false`) added three real renamed-on-collision duplicate profiles, firing a
+real `profiles-changed` event per profile and running every one of the four new real
+`applyScheduled*` functions without error - all three were then deleted again via
+`profiles.delete` and the sandbox confirmed back to its exact starting profile count.
+
+**Confirmed through the real compiled app - a real new bug found and fixed, not another honest
+gap.** Every tab except one rendered its real seeded data correctly on first try: Application
+(real `dataDir.getDefault`/stats-history settings), Web Dashboard (the real local IP from
+`getLocalNetworkIps()`), Access Tokens (both real child sections; created and deleted a real
+access token end to end, including the real "shown once" secret), and Updates (the real
+`checkForUpdate()` honest-error path described above). Clicking **Discord Bot**, however, blank-
+screened the whole page - a genuine React unmount, confirmed via the real WebKitGTK inspector
+(`Inspect Element`'s Console panel): `TypeError: undefined is not an object (evaluating
+'window.api.watchedPlayers.list')`, thrown inside `WatchedPlayersSection.tsx` (also rendered on
+this tab, same as `AccessTokensSection.tsx`/`ApiKeysSection.tsx` on the Access Tokens tab) -
+`data-settings-entry.tsx` had simply never declared `window.api.watchedPlayers`/`system.
+focusWindow` (`confirmAction()`'s own native-window-focus workaround, used by this section's
+"Remove" button). **Fixed** by adding both, reusing the already-proven `watched_players_list`/
+`_add`/`_remove`/`window_focus` Rust commands from "An eleventh real page" - no new backend
+needed, just a missing frontend declaration. Re-confirmed clean afterward: all five tabs render,
+including a real watched-player entry from an earlier round showing correctly.
+
+**A second, purely investigative issue the first fix's own re-test surfaced: a stale embedded
+bundle, not a stale webview cache.** After editing and rebuilding `data-settings-entry.tsx`
+(`node frontend/build-react.mjs`) but *before* re-running `cargo build`, the exact same crash
+persisted - including after fully clearing WebKitGTK's on-disk cache
+(`~/.local/share/com.bober.tauripoc/WebKitCache`, confirmed via `find`/`rm -rf` and a fresh
+process launch). The real cause: this PoC's `tauri.conf.json` has no `devUrl` configured, so
+`frontendDist` is embedded into the compiled binary by `tauri-build`'s `build.rs` at `cargo
+build` time - editing a `.js` file on disk afterward has no effect until Rust is rebuilt, even
+though the file is served from that same path at runtime. Re-running `cargo build` alone (no
+code change needed beyond the one already made) picked up the fix immediately. Worth recording
+as its own finding: a future round that edits only `frontend/*.tsx` must still run `cargo build`
+before re-testing in the compiled app, not just `node frontend/build-react.mjs` - the standalone
+sidecar harness never has this problem (it runs the bundled `.cjs` directly off disk), which is
+exactly why this didn't surface until the first real multi-tab round that also happened to need
+a post-hoc frontend fix.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2457,6 +2535,18 @@ inside the composed shell.
   `AnalyticsTab`'s/`BackupsTab`'s own live server-status push updates and the native
   dialogs reachable from inside the composed shell (same already-documented gaps as their own
   standalone rounds, not new ones introduced by composing them).
+- **~~Nothing about the app-wide Settings screen, Discord bot settings, access tokens/API keys,
+  cluster export/import, or app updates~~ - proven, a twenty-sixth real page.** See "A
+  twenty-sixth real page" above: every tab's real backend surface was confirmed, including a
+  real access-token create/delete round trip, a real cluster export/import cycle (cleaned up
+  afterward), and the real `checkForUpdate()` honest dev-mode gate. One real bug was found and
+  fixed along the way (a missing `window.api.watchedPlayers`/`system.focusWindow` declaration
+  crashing the Discord Bot tab), not an architectural gap. Still unconfirmed: the two new native
+  cluster-bundle dialogs' own happy path (same gap as every other picker in this PoC), a real
+  CurseForge-key-present Discord bot update-notification flow, and `checkForUpdate()`'s actual
+  download/install behavior in a packaged build (this sandbox has never built a packaged
+  release, the same category of gap as "needs a real external credential/environment" cases
+  elsewhere in this PoC).
 
 ## Where the real Electron coupling lives
 

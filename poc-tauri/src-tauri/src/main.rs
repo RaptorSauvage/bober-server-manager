@@ -272,6 +272,37 @@ fn dialog_save_profile_file(default_name: String, app_handle: tauri::AppHandle) 
         .map(|p| p.to_string())
 }
 
+/// Backs DataSettingsView.tsx's "Export cluster backup" button (window.api.dialog.
+/// saveClusterBundleFile) - a sixth sidecar-free native dialog, same architectural class as
+/// dialog_save_profile_file. The real dialog.ts computes a date-stamped default filename
+/// (`bober-cluster-backup-<date>.json`) - simplified to a fixed name here rather than pulling
+/// in a date-formatting crate just for a suggested filename; the actual porting question this
+/// PoC cares about (a real native save dialog reachable from the sidecar-free command class)
+/// is unaffected either way.
+#[tauri::command]
+fn dialog_save_cluster_bundle_file(app_handle: tauri::AppHandle) -> Option<String> {
+    app_handle
+        .dialog()
+        .file()
+        .set_file_name("bober-cluster-backup.json")
+        .add_filter("JSON", &["json"])
+        .blocking_save_file()
+        .map(|p| p.to_string())
+}
+
+/// Backs DataSettingsView.tsx's "Import cluster backup" button
+/// (window.api.dialog.selectClusterBundleFile) - a seventh sidecar-free native dialog, same
+/// architectural class as dialog_select_file/dialog_select_ini_file.
+#[tauri::command]
+fn dialog_select_cluster_bundle_file(app_handle: tauri::AppHandle) -> Option<String> {
+    app_handle
+        .dialog()
+        .file()
+        .add_filter("JSON", &["json"])
+        .blocking_pick_file()
+        .map(|p| p.to_string())
+}
+
 #[tauri::command]
 fn player_roster_kick(
     profile_id: String,
@@ -831,6 +862,120 @@ fn profiles_export(profile_id: String, file_path: String, sidecar: tauri::State<
     sidecar.call("profiles.export", Some(serde_json::json!({ "profileId": profile_id, "filePath": file_path })))
 }
 
+/// Backs DataSettingsView.tsx - a twenty-sixth real page. See sidecar.ts's own comment: real,
+/// unmodified store.ts/webDashboard.ts/discordBot.ts/launchOnStartup.ts/iniLock.ts/
+/// playerJoinAlertWatch.ts/playerActivityWatch.ts/dataDir.ts/appUpdater.ts/clusterExport.ts/
+/// auth.ts functions.
+#[tauri::command]
+fn data_dir_get_default(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("dataDir.getDefault", None)
+}
+
+#[tauri::command]
+fn web_dashboard_get_local_ips(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("webDashboard.getLocalIps", None)
+}
+
+#[tauri::command]
+fn discord_bot_status(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("discordBot.status", None)
+}
+
+#[tauri::command]
+fn discord_bot_restart(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("discordBot.restart", None)
+}
+
+#[tauri::command]
+fn discord_bot_stop(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("discordBot.stop", None)
+}
+
+#[tauri::command]
+fn app_update_get_version(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("appUpdate.getVersion", None)
+}
+
+#[tauri::command]
+fn app_update_check(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("appUpdate.check", None)
+}
+
+#[tauri::command]
+fn app_update_status(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("appUpdate.status", None)
+}
+
+#[tauri::command]
+fn app_update_install(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("appUpdate.install", None)
+}
+
+#[tauri::command]
+fn cluster_export(file_path: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("cluster.export", Some(serde_json::json!({ "filePath": file_path })))
+}
+
+#[tauri::command]
+fn cluster_import(file_path: String, include_settings: bool, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call(
+        "cluster.import",
+        Some(serde_json::json!({ "filePath": file_path, "includeSettings": include_settings })),
+    )
+}
+
+#[tauri::command]
+fn web_dashboard_access_tokens_list(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("webDashboardAccessTokens.list", None)
+}
+
+#[tauri::command]
+fn web_dashboard_access_tokens_create(
+    label: String,
+    role: String,
+    profile_ids: Option<Vec<String>>,
+    sidecar: tauri::State<SidecarHandle>,
+) -> Result<Value, String> {
+    sidecar.call(
+        "webDashboardAccessTokens.create",
+        Some(serde_json::json!({ "label": label, "role": role, "profileIds": profile_ids })),
+    )
+}
+
+#[tauri::command]
+fn web_dashboard_access_tokens_update(
+    id: String,
+    updates: Value,
+    sidecar: tauri::State<SidecarHandle>,
+) -> Result<Value, String> {
+    sidecar.call("webDashboardAccessTokens.update", Some(serde_json::json!({ "id": id, "updates": updates })))
+}
+
+#[tauri::command]
+fn web_dashboard_access_tokens_delete(id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("webDashboardAccessTokens.delete", Some(serde_json::json!({ "id": id })))
+}
+
+#[tauri::command]
+fn web_dashboard_api_keys_list(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("webDashboardApiKeys.list", None)
+}
+
+#[tauri::command]
+fn web_dashboard_api_keys_create(label: String, role: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("webDashboardApiKeys.create", Some(serde_json::json!({ "label": label, "role": role })))
+}
+
+#[tauri::command]
+fn web_dashboard_api_keys_update(id: String, updates: Value, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("webDashboardApiKeys.update", Some(serde_json::json!({ "id": id, "updates": updates })))
+}
+
+#[tauri::command]
+fn web_dashboard_api_keys_delete(id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("webDashboardApiKeys.delete", Some(serde_json::json!({ "id": id })))
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -1070,6 +1215,8 @@ fn main() {
             dialog_select_file,
             dialog_select_ini_file,
             dialog_save_profile_file,
+            dialog_save_cluster_bundle_file,
+            dialog_select_cluster_bundle_file,
             window_focus,
             player_roster_list,
             player_roster_kick,
@@ -1171,7 +1318,26 @@ fn main() {
             ark_mods_info,
             server_preview_launch_command,
             system_open_data_dir_folder,
-            profiles_export
+            profiles_export,
+            data_dir_get_default,
+            web_dashboard_get_local_ips,
+            discord_bot_status,
+            discord_bot_restart,
+            discord_bot_stop,
+            app_update_get_version,
+            app_update_check,
+            app_update_status,
+            app_update_install,
+            cluster_export,
+            cluster_import,
+            web_dashboard_access_tokens_list,
+            web_dashboard_access_tokens_create,
+            web_dashboard_access_tokens_update,
+            web_dashboard_access_tokens_delete,
+            web_dashboard_api_keys_list,
+            web_dashboard_api_keys_create,
+            web_dashboard_api_keys_update,
+            web_dashboard_api_keys_delete
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

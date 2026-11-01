@@ -22,7 +22,13 @@ export const app = {
   getVersion(): string {
     return '0.0.0-poc'
   },
-  isPackaged: false
+  isPackaged: false,
+  setLoginItemSettings(_settings: { openAtLogin: boolean }): void {
+    // No real "launch at login" concept for a plain Node child process - lib/launchOnStartup.ts
+    // already wraps its one call to this in a try/catch and treats a thrown error as a
+    // harmless no-op in an unsupported environment, so a stub that quietly accepts the call
+    // is the honest PoC-appropriate behavior here, not a thrown "unimplemented".
+  }
 }
 
 /**
