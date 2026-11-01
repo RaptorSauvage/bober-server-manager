@@ -25,3 +25,4 @@ frontend/event-scheduler.js
 frontend/map-manager.js
 frontend/ini-templates.js
 frontend/files.js
+frontend/mods.js

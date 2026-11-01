@@ -39,7 +39,7 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   that routes each line either to the pending `call()` it answers (has an `"id"`), a
   `"shell-request"` (the sidecar calling back into Rust - see "The reverse direction" below), or
   out to the webview as an ordinary Tauri event (any other `"event"`), and exposes one hundred
-  Tauri commands: `profiles_list`, `profiles_save` (takes a profile object), `profiles_copy`/
+  and five Tauri commands: `profiles_list`, `profiles_save` (takes a profile object), `profiles_copy`/
   `profiles_move` (take `profileId`/`destInstallDir`/`newName` - see "A second real page" below),
   `log_record` (takes a message string), `manager_log_get_all` (see "A real React page" below),
   `server_start`/`server_stop`/`server_restart`/`server_kill`/`server_update`/`server_status`
@@ -91,6 +91,8 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   `file_browser_list`/`file_browser_open`/`file_browser_delete`/`file_browser_read_ini`/
   `file_browser_write_ini`/`file_browser_ini_history`/`file_browser_ini_history_diff`/
   `file_browser_ini_restore` - reaching the round-number hundredth Tauri command in this PoC.
+  The twenty-third (see "A twenty-third real page" below) added `mods_save`/`mods_parse_text`/
+  `mods_reconcile_from_ini`/`ark_mods_search`/`ark_mods_info`.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -1899,6 +1901,39 @@ the real restore confirmation's own "current content will be saved to history fi
 No new bug - every real call site behaved exactly as its own standalone prediction, now also
 confirmed through a real sequence of real clicks rather than direct RPC calls.
 
+### A twenty-third real page: the opposite honest-network-gap shape from SteamCMD's own
+
+`ServerDetail/ModsTab.tsx` is the per-server mod list, with real per-game branching between ARK:
+Survival Ascended (`-mods=`/`-passivemods=` launch flags, real CurseForge search/enrichment) and
+ARK: Survival Evolved (real `GameUserSettings.ini`'s `ActiveMods=`/`Game.ini`'s
+`[ModInstaller]`, via the same real `gameConfigWrite.ts` functions `applyModEventChange`
+("A nineteenth real page") already called internally - new direct real call sites of them here,
+not a new mechanism). Picked specifically because `arkMods.search`/`arkMods.info`
+(`lib/arkMods.ts`, the real CurseForge API client) are the **opposite** honest-network-gap shape
+from `SteamCmdView.tsx`'s own `installManagedSteamCmd()` ("A sixteenth real page"): where that
+function always makes a real `fetch()` attempt (and fails honestly only once the request is
+already in flight), these two real functions check for a configured CurseForge API key *first*
+and return gracefully empty with **no network attempt made at all** when none is set - this
+sandbox's own real, honest state, confirmed by reading `curseforgeApiKey` directly rather than
+assumed.
+
+**Confirmed standalone first**: `arkMods.search`/`arkMods.info` both returned real empty
+results with no CurseForge key configured, `mods.parseText` correctly parsed a real
+comma/newline-mixed id list, and a full real `mods.save` → `mods.reconcileFromIni` → `mods.save`
+(revert) cycle round-tripped cleanly with nothing left behind - `syncAseModsToIni`'s own
+real no-op-for-Ascended behavior confirmed by no stray `.ini` file appearing anywhere in the
+sandbox afterward.
+
+**Confirmed through the real compiled app**: the real, unmodified form correctly rendered the
+honest "Set a CurseForge API key..." empty state for the search section (no CurseForge key in
+this sandbox), typing a real mod id and clicking "Add" produced a real new row with the real
+honest `—` placeholder for its unresolved name (no CurseForge lookup possible without a key,
+exactly matching the standalone result), and the real write landed on disk - confirmed directly
+in the real profile's own `mods` array. Clicking "Remove" correctly produced a second real write
+back to an empty list, confirmed again on disk, leaving the sandbox exactly as it started. No new
+bug - every real call site, including the deliberately-contrasted honest network-gap shape, 
+matched its own standalone prediction.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2296,6 +2331,16 @@ confirmed through a real sequence of real clicks rather than direct RPC calls.
   other `shell.openPath`/native-dialog call in this PoC - this sandbox has no desktop session
   to observe it opening in), and the `.log`-file read-only path specifically (no real log file
   was browsed to this round, though `console.*`'s own log parsing is already proven elsewhere).
+- **~~Nothing about the per-server mod list, or CurseForge-backed search with no key
+  configured~~ - proven, a twenty-third real page.** See "A twenty-third real page" above:
+  `ModsTab.tsx`'s real `gameConfigWrite.ts`/`modsExport.ts`/`arkMods.ts` functions round-tripped
+  correctly both standalone and through the real compiled app, including a real add/write and a
+  real remove/write each confirmed on disk. `arkMods.search`/`arkMods.info` showed the honest
+  *opposite* network-gap shape from SteamCMD's own always-attempts `fetch()` - a real
+  key-configured check first, no network attempt at all without one, confirmed by this
+  sandbox's own real unset `curseforgeApiKey`. Still unconfirmed: a real CurseForge-key-present
+  search/enrichment result (needs a real API key, which this PoC has deliberately never had
+  configured, the same category of gap as every other "needs a real external credential" case).
 
 ## Where the real Electron coupling lives
 

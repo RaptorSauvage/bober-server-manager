@@ -772,6 +772,33 @@ fn file_browser_ini_restore(profile_id: String, entry_id: String, sidecar: tauri
     sidecar.call("fileBrowser.iniRestore", Some(serde_json::json!({ "profileId": profile_id, "entryId": entry_id })))
 }
 
+/// Backs ServerDetail/ModsTab.tsx - a twenty-third real page. See sidecar.ts's own comment:
+/// real, unmodified gameConfigWrite.ts/modsExport.ts/arkMods.ts functions.
+#[tauri::command]
+fn mods_save(profile_id: String, mods: Value, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("mods.save", Some(serde_json::json!({ "profileId": profile_id, "mods": mods })))
+}
+
+#[tauri::command]
+fn mods_parse_text(text: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("mods.parseText", Some(serde_json::json!({ "text": text })))
+}
+
+#[tauri::command]
+fn mods_reconcile_from_ini(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("mods.reconcileFromIni", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+#[tauri::command]
+fn ark_mods_search(query: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("arkMods.search", Some(serde_json::json!({ "query": query })))
+}
+
+#[tauri::command]
+fn ark_mods_info(mod_ids: Vec<String>, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("arkMods.info", Some(serde_json::json!({ "modIds": mod_ids })))
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -1103,7 +1130,12 @@ fn main() {
             file_browser_write_ini,
             file_browser_ini_history,
             file_browser_ini_history_diff,
-            file_browser_ini_restore
+            file_browser_ini_restore,
+            mods_save,
+            mods_parse_text,
+            mods_reconcile_from_ini,
+            ark_mods_search,
+            ark_mods_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

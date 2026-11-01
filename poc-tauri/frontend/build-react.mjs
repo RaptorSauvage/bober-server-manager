@@ -32,7 +32,8 @@ const pages = [
   'event-scheduler',
   'map-manager',
   'ini-templates',
-  'files'
+  'files',
+  'mods'
 ]
 
 for (const page of pages) {

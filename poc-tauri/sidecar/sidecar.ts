@@ -106,6 +106,9 @@ import { applyIniTemplate, applyIniTemplateToAll } from '../../src/main/lib/iniT
 import { armModEvent, disarmModEvent, armAllModEvents } from '../../src/main/lib/modEvents'
 import { listMaps } from '../../src/main/lib/maps'
 import { listCustomMaps, addCustomMap, updateCustomMap, deleteCustomMap } from '../../src/main/lib/customMaps'
+import { syncAseModsToIni, reconcileAseModsFromIni } from '../../src/main/lib/gameConfigWrite'
+import { parseImportedMods } from '../../src/main/lib/modsExport'
+import { searchArkMods, getArkModsInfo } from '../../src/main/lib/arkMods'
 import {
   listFileBrowserEntries,
   resolveFileBrowserPath,
@@ -119,7 +122,14 @@ import {
 import { shell } from 'electron'
 import { send, resolveRustResponse } from './rpcToRust'
 import type { GameId } from '../../shared/games'
-import type { AppSettings, IniTemplateContent, IniTemplateProfileOverride, ModEvent, ServerProfile } from '../../shared/types'
+import type {
+  AppSettings,
+  IniTemplateContent,
+  IniTemplateProfileOverride,
+  ModEvent,
+  ServerMod,
+  ServerProfile
+} from '../../shared/types'
 
 interface RpcRequest {
   id: number
@@ -872,7 +882,42 @@ const methods: Record<string, (params: unknown) => unknown> = {
     if (!profile) throw new Error(`Unknown profile: ${profileId}`)
     restoreIniHistoryEntry(profileId, profile.installDir, entryId)
     return { ok: true }
-  }
+  },
+  // A twenty-third real page: ServerDetail/ModsTab.tsx - the per-server mod list, shared
+  // (with real per-game branching) between ARK: Survival Ascended (-mods=/-passivemods=
+  // launch flags, real CurseForge search/enrichment) and ARK: Survival Evolved
+  // (GameUserSettings.ini's real ActiveMods=/Game.ini's [ModInstaller], via the same real
+  // gameConfigWrite.ts functions "A nineteenth real page"'s applyModEventChange already
+  // called internally - new direct real call sites of them here, not a new mechanism).
+  // mods.save mirrors the real handler's exact body (profiles.save + syncAseModsToIni, a
+  // no-op for Ascended); mods.reconcileFromIni picks up any mod already in a real
+  // ActiveMods= line the Manager didn't know about yet. arkMods.search/arkMods.info hit the
+  // real CurseForge API (curseforgeClient.ts) - honestly, real-gracefully empty with no real
+  // network attempt at all when no CurseForge API key is configured (unlike SteamCMD's own
+  // "A sixteenth real page" fetch, which always attempts), confirmed by this sandbox's own
+  // unset curseforgeApiKey setting.
+  'mods.save': (params) => {
+    const { profileId, mods } = params as { profileId: string; mods: ServerMod[] }
+    const profile = listProfiles().find((p) => p.id === profileId)
+    if (!profile) throw new Error(`Unknown profile: ${profileId}`)
+    const updated = { ...profile, mods }
+    saveProfile(updated)
+    syncAseModsToIni(updated)
+    return updated
+  },
+  'mods.parseText': (params) => parseImportedMods((params as { text: string }).text),
+  'mods.reconcileFromIni': (params) => {
+    const { profileId } = params as { profileId: string }
+    const profile = listProfiles().find((p) => p.id === profileId)
+    if (!profile) throw new Error(`Unknown profile: ${profileId}`)
+    const mods = reconcileAseModsFromIni(profile)
+    if (mods === profile.mods) return profile
+    const updated = { ...profile, mods }
+    saveProfile(updated)
+    return updated
+  },
+  'arkMods.search': (params) => searchArkMods((params as { query: string }).query),
+  'arkMods.info': (params) => getArkModsInfo((params as { modIds: string[] }).modIds)
 }
 
 let stopConsoleWatch: (() => void) | null = null
