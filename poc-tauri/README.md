@@ -3358,3 +3358,39 @@ clean `tsc --noEmit` on the main/node project. Also hardened the real, dead-but-
 `AbortSignal.timeout()` while in the area - not the actual bug, but the same no-timeout shape,
 worth closing now that it was already being looked at rather than leaving it for the next person
 to rediscover the hard way.
+
+## The freeze, continued: not the data, a third-party antivirus - plus a second, real bug found along the way
+
+The `isValidArkInstall()` fix above measurably shortened the freeze but didn't remove it, and the
+next report ("aléatoire, pas de pattern clair" - random, no clear pattern, still on any page) no
+longer matched a data-volume theory at all: this PoC's sidecar reads from a dedicated,
+always-isolated directory (`sidecar/electronShim.ts`'s `POC_USER_DATA`,
+`~/.tauri-poc-bober-manager` - by design, so a PoC can never touch a real install's actual data),
+so the "6-20+ real profiles" the user had been describing were never actually loaded into this
+PoC at all - a wrong premise on my part, caught by asking rather than guessing a second
+data-shaped fix. With near-0% CPU on both the Rust shell and the sidecar confirmed during the
+freeze (no compute-bound loop) and no console errors, the actual cause turned out to be
+Malwarebytes' real-time protection reacting to the freshly-compiled, unsigned debug binary and
+the sidecar's own many small file accesses - confirmed by the user adding the project folder to
+Malwarebytes' exclusions, which resolved the main freeze. See "Signature de code" in
+`MIGRATION-PLAN.md` for why this isn't just a dev-machine inconvenience: an unsigned binary can
+keep triggering this kind of heuristic scan for real end users too, not just during local builds.
+
+A second, smaller, genuinely independent issue turned up alongside it: switching between the
+ARK and Minecraft game modes ("un petit lag... qui semble indépendant") carried a real,
+separate lag. `App.tsx`'s own `mainContent` picked between the ARK and Minecraft subtrees with a
+plain ternary (`gameMode === 'minecraft' ? (...) : (...)`) - so, unlike Dashboard/ServerDetail
+*within* one game mode (already kept mounted behind `.app-view-hidden`, see "Fix Dashboard
+remount flash" in this app's own history), switching the game mode itself fully unmounted one
+whole side's sidebar/Dashboard/open ServerDetail and rebuilt the other from scratch every time -
+the exact same class of bug the in-mode fix already solved, just one level up, never extended to
+cover the mode switch itself. Fixed the same way: both game modes' entire trees render always
+now, each wrapped in its own `.app-view-hidden`-toggled `<div>` keyed on `gameMode`, instead of a
+ternary choosing which one exists. Confirmed in the compiled app (screenshot-verified): switching
+to Minecraft and back to ARK showed the ARK side's network-usage numbers had kept updating the
+whole time it was hidden (`61.8 KB/s` before the switch, `46.6`/`84.4 KB/s` after - a live value
+that could only still be moving if that tree had stayed mounted, not proof from reading the code
+alone), and a devtools Console check immediately after showed nothing - no errors, no warnings.
+`tsc --noEmit -p tsconfig.web.json` and a full `electron-vite build` both stayed clean, and the
+PoC itself was rebuilt across all three layers (sidecar unaffected, React re-bundled, `cargo
+build`) to pick up the real, unmodified `App.tsx` this PoC's `app.js` bundles from.

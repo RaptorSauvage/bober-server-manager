@@ -408,9 +408,15 @@ export default function App(): JSX.Element {
   // actually running, generic hardware-card text) while everything it needs re-fetched from
   // scratch. Keeping it mounted in the background means it's already showing the right thing
   // the instant it's shown again, same as it would if you'd just never navigated away.
-  const mainContent =
-    gameMode === 'minecraft' ? (
-      <>
+  // Each game mode's whole tree (not just Dashboard/ServerDetail within one mode, see above)
+  // stays mounted and merely hidden via .app-view-hidden rather than swapped by a ternary -
+  // same reasoning, same fix for the same flash, just one level up: switching gameMode used to
+  // unmount the entire other side (sidebar, Dashboard, any open ServerDetail) and rebuild it
+  // from scratch on every single switch back, which is both the visible flash and the real
+  // lag a user can feel on a slower machine, not just a redraw.
+  const mainContent = (
+    <>
+      <div className={gameMode === 'minecraft' ? '' : 'app-view-hidden'}>
         <div className={minecraftSelected ? 'app-shell app-view-hidden' : 'app-shell'}>
           <nav className="app-sidebar">
             <GameSwitch mode={gameMode} onChange={setGameMode} />
@@ -464,9 +470,8 @@ export default function App(): JSX.Element {
             onProfileChange={handleMinecraftProfileChange}
           />
         )}
-      </>
-    ) : (
-      <>
+      </div>
+      <div className={gameMode === 'ark' ? '' : 'app-view-hidden'}>
         <div className={selected || groupConsoleTarget ? 'app-shell app-view-hidden' : 'app-shell'}>
           <nav className="app-sidebar">
             <GameSwitch mode={gameMode} onChange={setGameMode} />
@@ -556,8 +561,9 @@ export default function App(): JSX.Element {
             />
           )
         )}
-      </>
-    )
+      </div>
+    </>
+  )
 
   return (
     <>

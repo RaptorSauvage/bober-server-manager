@@ -201,11 +201,21 @@ Electron - rien de commun avec Tauri. Il faut :
 
 Sans certificat Authenticode, l'installeur `.msi`/`.exe` déclenchera l'avertissement
 SmartScreen "Windows a protégé votre PC" à chaque installation - acceptable pour des tests
-internes, pas pour des utilisateurs grand public. Il faut :
+internes, pas pour des utilisateurs grand public. **Confirmé réel, pas juste théorique** : le
+premier test sur une vraie machine Windows (voir README, "A real freeze bug..." et le freeze
+"aléatoire" qui a suivi) a fait réagir Malwarebytes sur le binaire Rust fraîchement compilé en
+mode debug (non signé) - heuristique de scan temps réel déclenchée par un exécutable inconnu qui
+fait beaucoup de petits accès disque (sidecar Node, lecture/écriture de profils), ralentissant
+l'appli de façon imprévisible jusqu'à ce que le dossier projet soit mis en exclusion. Pour une
+diffusion publique, ce ne sera pas juste un avertissement SmartScreen à l'installation : un
+binaire non signé peut continuer à se faire activement ralentir/mettre en quarantaine par
+n'importe quel antivirus tiers chez l'utilisateur final, bien après l'installation. Il faut :
 - Un certificat de signature de code (OV ou EV - EV évite l'avertissement dès le premier
-  téléchargement, OV demande une période de réputation).
+  téléchargement, OV demande une période de réputation ; EV réduit aussi, sans l'éliminer,
+  le risque de faux positif heuristique côté antivirus tiers).
 - Intégrer la signature dans le pipeline de build (`tauri.conf.json`'s `bundle.windows.certificateThumbprint`
-  ou signature externe post-build).
+  ou signature externe post-build) - et signer un build `release` (optimisé), pas seulement le
+  binaire `debug` utilisé pendant ce PoC.
 
 ### 5. Les happy paths natifs jamais cliqués pour de vrai
 
