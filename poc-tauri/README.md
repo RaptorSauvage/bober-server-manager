@@ -3436,3 +3436,67 @@ archive, web dashboard). Added a test for the new eager-match case and fixed the
 "stale content" test's own `since` to actually postdate its write (it previously relied on a
 parameter that didn't exist yet) - all eleven `startupLogWatch.test.ts` cases pass, along with
 the rest of the real app's 1359-test suite and a clean `tsc --noEmit`/`electron-vite build`.
+
+## Four more real findings from the same testing session, all PoC-shell-specific this time
+
+Unlike the three rounds above, none of these are bugs in the real, shared source - each one is
+specific to this PoC's own Rust/Tauri shell (`src-tauri/src/main.rs`, `tauri.conf.json`, the
+PoC-only `index.html`/`app.html`), found by the same real-server testing session.
+
+**Stop/Restart/Kill/Update returned `"sidecar did not respond within 5s"` every time**, even
+though the sidecar was still genuinely working - the status eventually caught up correctly via
+the `'server-status'` push event a few seconds later, but the error in between was confusing and
+wrong. `SidecarHandle::call`'s flat 5s timeout (see "A real freeze bug" above for the full
+comment on why it exists at all) was sized for "a cheap store read/write," true for ~170 of the
+~180 commands here, never true for server lifecycle ones: `doStopServer`'s real sequence is RCON
+`SaveWorld` + a 30s settle (so the save genuinely finishes writing before the process dies) + a
+graceful-exit wait + up to 10s more to confirm a force-kill took effect (`SAVE_SETTLE_MS`/
+`FORCE_KILL_CONFIRM_MS` in `serverProcess.ts`; `STOP_GRACE_MS` in `minecraftProcess.ts` for the
+Minecraft side), `doUpdateServer`/Minecraft install/mod-update are real downloads that can run
+minutes, not seconds. Added `call_with_timeout` (`call` itself now just delegates to it with the
+same 5s default, so all ~170 unaffected commands keep their existing behavior exactly) and gave
+each of the nine real slow commands (ARK stop/restart/kill/update, Minecraft stop/kill/install,
+Minecraft mod update, SteamCMD install) a timeout sized to what that operation can actually take
+- 30s-150s for the lifecycle ones, up to an hour for real downloads. A correct general-purpose
+fix would make these fire-and-forget with progress over the push channel rather than a blocking
+call with *any* timeout, but that's a real architectural change beyond what a timeout bump is;
+noted in `MIGRATION-PLAN.md` as worth doing for real, not just patched around here.
+
+**A double title bar.** `tauri.conf.json` never set `decorations` (so Tauri's own default,
+`true`, drew a native OS title bar) while `App.tsx`'s real `TitleBar.tsx` *also* draws its own -
+by design, since the real Electron window is created with `frame: false` specifically so
+`TitleBar.tsx` can be the only chrome (see `createWindow` in `main/index.ts`'s own comment).
+Screenshot-confirmed: native minimize/maximize/close stacked directly above the real app's own
+File/Tools/Help row and its own minimize/maximize/close, both fully functional, neither aware of
+the other. Set `decorations: false` to match the real window's own model exactly, and bumped the
+default window size from 900x600 to 1280x820 (the real app's own `createWindow` size) now that
+`app.html` - which needs the room a real dashboard layout expects - is the primary way this PoC
+gets exercised, not the original 36 one-feature-at-a-time demo pages `index.html` still links to.
+
+**The web dashboard's browser tab had no favicon.** `webDashboard.ts`'s real, unmodified favicon
+handler reads `path.join(process.cwd(), 'build/icon.png')` whenever `app.isPackaged` is false -
+always true in this PoC (`electronShim.ts`'s own `isPackaged: false`). `process.cwd()` for a
+sidecar spawned by Rust is wherever Rust itself happened to run from, which has no `build/`
+relative to it at all - so the read silently failed every time (caught, cached as "no favicon"),
+not something any earlier round's testing ever had a reason to notice since none of them ran the
+web dashboard against real profiles long enough to check the browser tab itself. Set the sidecar
+command's own `current_dir` to the repo root (via `CARGO_MANIFEST_DIR` at compile time, same
+already-precedented dev-only technique this file's own `BOT_LAUNCH_COMMAND` comment mentions
+using once before) - dev-iteration only, scoped to the `SIDECAR_PATH` branch; the packaged
+`sidecar-bin` branch is untouched, since a real install has no repo checkout to point at and
+`app.isPackaged` would be true there anyway, taking the (unaffected) `process.resourcesPath`
+branch instead. Confirmed via `/proc/<pid>/cwd` on the actually-running sidecar process, not
+just by reading the code: resolves to the repo root now, exactly where `build/icon.png` lives.
+
+**No way back from `app.html` to this PoC's own `index.html` demo hub.** Deliberately not added
+inside `App.tsx`/`TitleBar.tsx` (real, unmodified source - this button has no equivalent concept
+in the real app, which has no `index.html`) - a small `&larr; PoC index` button sits in `app.html`
+itself, outside the React tree entirely, positioned just below the real title bar's own 40px row.
+`index.html` itself picked up a minimal title bar of its own while in the area: `decorations:
+false` above means it has no native chrome either now, and unlike `app.html` it has no
+`TitleBar.tsx` of its own to provide one - without this it would have been strictly unclosable
+except via the OS's own task manager. Deliberately bare (just drag-to-move, minimize, close - no
+File/Tools/Help menu, this isn't the real app shell) using the same `-webkit-app-region: drag`
+CSS technique the real `TitleBar.tsx`'s own `.title-bar` class already uses, plus the
+`data-tauri-drag-region` HTML attribute Tauri 2 itself also recognizes, and the same
+`window_minimize`/`window_close` Rust commands `TitleBar.tsx` already calls.

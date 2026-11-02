@@ -120,18 +120,32 @@ fn write_line(child: &SharedChild, value: &impl Serialize) -> Result<(), String>
 
 impl SidecarHandle {
     fn call(&self, method: &str, params: Option<Value>) -> Result<Value, String> {
+        self.call_with_timeout(method, params, 5)
+    }
+
+    // A real report during testing: Stop (and Restart/Kill/Update) returned "sidecar did not
+    // respond within 5s" every time, even though the real stop sequence (RCON SaveWorld, a
+    // 30s settle so the save actually finishes writing before the process dies, a graceful-exit
+    // wait, then up to 10s more to confirm a force-kill took effect - see SAVE_SETTLE_MS/
+    // FORCE_KILL_CONFIRM_MS in serverProcess.ts, STOP_GRACE_MS in minecraftProcess.ts) was still
+    // genuinely running in the sidecar the whole time. The flat 5s timeout this originally
+    // shipped with was sized for "a cheap store read/write" (see its own old comment) - true for
+    // the ~170 other commands, never true for server lifecycle ones. Rust still gave up and
+    // surfaced an error after 5s regardless, confusing the UI with a stale/wrong state until the
+    // real completion arrived later via the 'server-status' push event.
+    fn call_with_timeout(&self, method: &str, params: Option<Value>, timeout_secs: u64) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
         self.pending.lock().unwrap().insert(id, tx);
 
         write_line(&self.child, &RpcRequest { id, method, params })?;
 
-        // The sidecar is a local child process answering a cheap store read/write - a
-        // genuinely hung sidecar (crashed, bad bundle, ...) should surface as an error, not
-        // hang the UI forever waiting on a response that will never come.
+        // The sidecar is a local child process - a genuinely hung sidecar (crashed, bad bundle,
+        // ...) should still surface as an error eventually, not hang the UI forever waiting on a
+        // response that will never come, hence a bound here at all rather than none.
         let response = rx
-            .recv_timeout(std::time::Duration::from_secs(5))
-            .map_err(|_| "sidecar did not respond within 5s".to_string())?;
+            .recv_timeout(std::time::Duration::from_secs(timeout_secs))
+            .map_err(|_| format!("sidecar did not respond within {timeout_secs}s"))?;
 
         match (response.result, response.error) {
             (Some(result), _) => Ok(result),
@@ -401,22 +415,26 @@ fn server_start(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Res
 
 #[tauri::command]
 fn server_stop(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
-    sidecar.call("server.stop", Some(serde_json::json!({ "profileId": profile_id })))
+    // SAVE_SETTLE_MS (30s) + graceful-exit wait + FORCE_KILL_CONFIRM_MS (10s) - see call_with_timeout's own comment.
+    sidecar.call_with_timeout("server.stop", Some(serde_json::json!({ "profileId": profile_id })), 90)
 }
 
 #[tauri::command]
 fn server_restart(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
-    sidecar.call("server.restart", Some(serde_json::json!({ "profileId": profile_id })))
+    // A stop sequence followed immediately by a start - roughly double server_stop's own budget.
+    sidecar.call_with_timeout("server.restart", Some(serde_json::json!({ "profileId": profile_id })), 150)
 }
 
 #[tauri::command]
 fn server_kill(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
-    sidecar.call("server.kill", Some(serde_json::json!({ "profileId": profile_id })))
+    // No SaveWorld settle to wait for, just FORCE_KILL_CONFIRM_MS (10s) plus margin.
+    sidecar.call_with_timeout("server.kill", Some(serde_json::json!({ "profileId": profile_id })), 30)
 }
 
 #[tauri::command]
 fn server_update(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
-    sidecar.call("server.update", Some(serde_json::json!({ "profileId": profile_id })))
+    // A real SteamCMD download - minutes for a large/modded server, not seconds.
+    sidecar.call_with_timeout("server.update", Some(serde_json::json!({ "profileId": profile_id })), 3600)
 }
 
 #[tauri::command]
@@ -685,7 +703,8 @@ fn steamcmd_managed_status(sidecar: tauri::State<SidecarHandle>) -> Result<Value
 
 #[tauri::command]
 fn steamcmd_install(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
-    sidecar.call("steamcmd.install", None)
+    // Downloads the real SteamCMD binary - same "minutes, not seconds" reasoning as server_update.
+    sidecar.call_with_timeout("steamcmd.install", None, 600)
 }
 
 /// Calls refocus_window unconditionally, success or error alike (the sidecar call's own
@@ -1037,7 +1056,8 @@ fn minecraft_install_list_loader_versions(
 
 #[tauri::command]
 fn minecraft_install_run(params: Value, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
-    sidecar.call("minecraft.install.run", Some(params))
+    // Downloads a real server jar/installer - same "minutes, not seconds" reasoning as server_update.
+    sidecar.call_with_timeout("minecraft.install.run", Some(params), 3600)
 }
 
 /// Backs MinecraftServerDetail/ServerManagementTab.tsx - a twenty-eighth real page, and the
@@ -1215,9 +1235,10 @@ fn minecraft_mods_update(
     project_id: String,
     sidecar: tauri::State<SidecarHandle>
 ) -> Result<Value, String> {
-    sidecar.call(
+    sidecar.call_with_timeout(
         "minecraft.mods.update",
-        Some(serde_json::json!({ "profileId": profile_id, "source": source, "projectId": project_id }))
+        Some(serde_json::json!({ "profileId": profile_id, "source": source, "projectId": project_id })),
+        600
     )
 }
 
@@ -1241,12 +1262,13 @@ fn minecraft_server_start(profile_id: String, sidecar: tauri::State<SidecarHandl
 
 #[tauri::command]
 fn minecraft_server_stop(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
-    sidecar.call("minecraft.server.stop", Some(serde_json::json!({ "profileId": profile_id })))
+    // STOP_GRACE_MS (30s) plus margin - same reasoning as server_stop's own comment.
+    sidecar.call_with_timeout("minecraft.server.stop", Some(serde_json::json!({ "profileId": profile_id })), 60)
 }
 
 #[tauri::command]
 fn minecraft_server_kill(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
-    sidecar.call("minecraft.server.kill", Some(serde_json::json!({ "profileId": profile_id })))
+    sidecar.call_with_timeout("minecraft.server.kill", Some(serde_json::json!({ "profileId": profile_id })), 30)
 }
 
 #[tauri::command]
@@ -1460,7 +1482,20 @@ fn dashboard_status(sidecar: tauri::State<SidecarHandle>) -> Result<Value, Strin
 /// so the rest of this function doesn't need to know which mode it's in).
 fn spawn_sidecar(app: &tauri::App) -> SidecarHandle {
     let sidecar_command = match std::env::var("SIDECAR_PATH") {
-        Ok(path) => app.shell().command("node").arg(path),
+        Ok(path) => {
+            // Dev iteration only - matches Electron's own dev-mode cwd (wherever `electron .`
+            // was run from: the repo root). Found via a real bug: webDashboard.ts's favicon
+            // read (real, unmodified) resolves to `path.join(process.cwd(), 'build/icon.png')`
+            // whenever app.isPackaged is false (electronShim.ts's own `isPackaged: false`
+            // always takes this branch) - without this, the sidecar's cwd is wherever Rust
+            // itself happened to be run from, which has no `build/icon.png` relative to it at
+            // all, so the web dashboard's browser tab showed no favicon. The packaged
+            // `sidecar-bin` branch below is untouched: a real install has no repo checkout to
+            // point at, and `process.resourcesPath` (the branch that actually matters once
+            // genuinely packaged) isn't affected by this at all.
+            let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+            app.shell().command("node").arg(path).current_dir(repo_root)
+        }
         Err(_) => app
             .shell()
             .sidecar("sidecar-bin")

@@ -49,9 +49,40 @@
       .live {
         color: #3fbf6f;
       }
+      #poc-titlebar {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        height: 32px;
+        margin: -24px -24px 20px -24px;
+        padding: 0 8px;
+        background: #1a1d24;
+        border-bottom: 1px solid #2c303a;
+        -webkit-app-region: drag;
+      }
+      #poc-titlebar button {
+        -webkit-app-region: no-drag;
+        margin-bottom: 0;
+        padding: 4px 10px;
+        font-size: 0.85rem;
+      }
     </style>
   </head>
   <body>
+    <!-- tauri.conf.json's windows[0].decorations is false (matches the real app's own
+         frame: false - see TitleBar.tsx) so there is no native title bar to drag/close/minimize
+         by - every page needs its own, same as the real App.tsx shell's TitleBar.tsx provides
+         for app.html. This one is deliberately minimal (no File/Tools/Help menu, this isn't the
+         real app shell), just enough to move and close the window from this landing page. -->
+    <div id="poc-titlebar" data-tauri-drag-region>
+      <button id="poc-titlebar-min" type="button" title="Minimize">&#x2212;</button>
+      <button id="poc-titlebar-close" type="button" title="Close">&#x2715;</button>
+    </div>
+    <script type="module">
+      const { invoke } = window.__TAURI__.core
+      document.getElementById('poc-titlebar-min').addEventListener('click', () => invoke('window_minimize'))
+      document.getElementById('poc-titlebar-close').addEventListener('click', () => invoke('window_close'))
+    </script>
     <h1>Tauri shell PoC - real store.ts through a Node sidecar</h1>
     <p><a href="manager-log.html" style="color: #8ab4ff">Open the real ManagerLogView.tsx (unmodified React page) &rarr;</a></p>
     <p><a href="profile-management.html" style="color: #8ab4ff">Open the real ProfileManagementView.tsx (copy/move + native folder picker) &rarr;</a></p>

@@ -11,8 +11,9 @@
     "windows": [
       {
         "title": "Tauri PoC - Bober Server Manager",
-        "width": 900,
-        "height": 600
+        "width": 1280,
+        "height": 820,
+        "decorations": false
       }
     ],
     "security": {

@@ -255,6 +255,20 @@ Minecraft. Avant tout déploiement en remplacement d'Electron, il faut une vraie
 validation : lancer, arrêter, killer, crash-reconnect, RCON, SteamCMD update, sur de vrais
 serveurs, sur une vraie machine Windows.
 
+**Mise à jour : cette vraie passe a eu lieu** (voir README, "Four more real findings...") - un
+vrai serveur ARK importé via "Legacy data import", démarré/arrêté/killé pour de vrai depuis le
+PoC compilé. A confirmé l'essentiel (spawn, détection de démarrage une fois le bug async corrigé,
+RCON SaveWorld) mais a aussi révélé un vrai problème d'architecture, pas juste un paramètre à
+ajuster : `SidecarHandle::call` dans `main.rs` est un appel bloquant avec timeout fixe (5s par
+défaut) - correct pour la quasi-totalité des ~180 commandes, mais Stop/Restart/Kill/Update (et
+leurs équivalents Minecraft) peuvent légitimement prendre de 30s à plusieurs minutes. Un timeout
+plus généreux par commande (`call_with_timeout`, déjà fait pour ces 9 commandes - voir README)
+est un correctif suffisant pour ce PoC, mais la vraie bonne architecture pour une appli livrée
+serait que ces commandes soient "fire-and-forget" côté Rust (la commande Tauri retourne
+immédiatement, la progression/complétion arrive uniquement via l'événement `server-status` déjà
+poussé) plutôt qu'un appel bloquant avec *un* timeout, aussi généreux soit-il - à faire pour de
+vrai avant une diffusion publique, pas juste contourné comme ici.
+
 ### 7. Pipeline de build CI
 
 Rien n'existe aujourd'hui pour builder automatiquement : sidecar SEA (`build.mjs` +
