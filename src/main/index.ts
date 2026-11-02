@@ -2,8 +2,15 @@
 // size (4) is easily saturated by a backup's zip compression alone, which then queues
 // up every other async fs/zlib call behind it - including unrelated IPC handlers just
 // reading a small JSON file - making the whole app appear frozen ("Not Responding")
-// for as long as the backup's zipping takes.
-process.env.UV_THREADPOOL_SIZE = '8'
+// for as long as the backup's zipping takes. Raised from 8 to 32 after a real user with
+// 6-20+ real profiles hit the same shape of freeze from a different source: App.tsx's own
+// window.api.server.isInstalled check runs once per profile via Promise.all on every
+// launch (see isValidArkInstall() in lib/detect.ts, async since that same investigation),
+// and with enough profiles - especially ones whose install folders get scanned per-access
+// by antivirus real-time protection - even async checks queue up behind each other on a
+// too-small pool. Confirmed I/O-wait, not CPU-bound (near-0% CPU on both the renderer and
+// main process during the freeze), which is exactly what a saturated threadpool looks like.
+process.env.UV_THREADPOOL_SIZE = '32'
 
 import { app, BrowserWindow, Menu, Tray, shell, dialog } from 'electron'
 // Must be the first import that touches `app` - pins userData to the pre-rename folder name

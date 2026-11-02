@@ -1467,6 +1467,17 @@ fn spawn_sidecar(app: &tauri::App) -> SidecarHandle {
             .expect("failed to resolve the 'sidecar-bin' sidecar - check tauri.conf.json's bundle.externalBin and run sidecar/build-sea.mjs first"),
     };
 
+    // Node's libuv threadpool defaults to only 4 worker threads, shared by every async fs/dns
+    // call the sidecar makes. Found via a real freeze report: isValidArkInstall() (now async,
+    // see detect.ts) checks every profile's install on launch - with a handful of sandbox
+    // profiles on fast local disk that's unnoticeable, but with 6-20+ real profiles, each
+    // async fs.promises.access() call still individually slow (a real Windows machine with
+    // antivirus real-time scanning intercepting each disk access), only 4 can run at once, so
+    // the rest queue behind them - confirmed by Task Manager showing near-0% CPU on both this
+    // process and the sidecar during the freeze (I/O-wait, not a compute-bound loop). Raising
+    // this lets far more of those checks actually run concurrently instead of queueing.
+    let sidecar_command = sidecar_command.env("UV_THREADPOOL_SIZE", "64");
+
     // Fixes the real bug documented in README.md's "The Discord bot subsystem": discordBot.ts's
     // fork() silently can't launch a different script from inside this sidecar once it's a SEA
     // binary. BOT_LAUNCH_COMMAND (a small, opt-in override added to the real discordBot.ts -
