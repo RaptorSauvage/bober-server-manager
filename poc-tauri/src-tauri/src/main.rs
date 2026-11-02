@@ -1711,6 +1711,43 @@ fn main() {
             let handle = spawn_sidecar(app);
             app.manage(handle);
             app.manage(MaximizeState(Mutex::new(None)));
+
+            // A real report: "une ligne bleue autour de la fenêtre" (plus a "gap" on one
+            // edge - the same border, just more visible there against the taskbar/desktop
+            // behind it). This is Windows 11 drawing its own thin accent-colored border
+            // around any top-level window once it's focused - a DWM behavior independent of
+            // this window's own decorations(false), confirmed on Windows 11 Build 22000+
+            // (see Microsoft's own DWMWA_BORDER_COLOR docs). The documented suppression:
+            // DwmSetWindowAttribute(DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE), set once here
+            // right after the window exists.
+            //
+            // Unverified beyond compiling, and said plainly rather than glossed over after
+            // two earlier "should work" fixes in this file already turned out wrong on a
+            // real rebuild: windows-rs and DWM are Windows-only, so neither this binary
+            // (built native-Linux for every earlier round's own Xvfb testing) nor a default
+            // `cargo check` can touch this code at all - checked instead with `cargo check
+            // --target x86_64-pc-windows-gnu`, which needs neither a Windows machine nor a
+            // linker, only confirms the types line up. Real activation-time behavior still
+            // needs the user's own machine to confirm.
+            #[cfg(windows)]
+            {
+                use windows::Win32::Foundation::COLORREF;
+                use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_BORDER_COLOR};
+                if let Some(window) = app.get_webview_window("main") {
+                    if let Ok(hwnd) = window.hwnd() {
+                        let dwmwa_color_none = COLORREF(0xFFFFFFFE);
+                        let _ = unsafe {
+                            DwmSetWindowAttribute(
+                                hwnd,
+                                DWMWA_BORDER_COLOR,
+                                &dwmwa_color_none as *const _ as *const std::ffi::c_void,
+                                std::mem::size_of::<COLORREF>() as u32,
+                            )
+                        };
+                    }
+                }
+            }
+
             Ok(())
         })
         // A real report, see window_toggle_maximize's own doc comment for the full story: a

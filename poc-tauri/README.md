@@ -3787,3 +3787,50 @@ and separately the `*` wildcard a cache can send to mean "anything you've got") 
 header a browser holding a bad cached entry would actually send. Every request came back `200`
 with the real, correct image bytes and `Cache-Control: no-store`, never a `304`, regardless of
 what the "client" claimed to already have.
+
+(A trailing note on that round: a real missing-rebuild turned out to explain the next "still
+nothing" report that came in right after this one shipped - the user hadn't rebuilt the sidecar
+at all, so none of this had actually run yet. Confirmed fixed once they did.)
+
+## A real Windows 11 DWM border, found through two Linux build targets instead of one
+
+Next real report: "une ligne bleue autour de la fenêtre" and "un léger gap à gauche" in maximized
+view - both symptoms of the same thing, the second just more visible against the taskbar/desktop
+on that edge. This isn't a Tauri bug or something this window's own `decorations: false` can
+reach at all: Windows 11 (Build 22000+) draws its own thin accent-colored border around any
+top-level window once focused, independent of the app's own window style - a well-documented DWM
+behavior (`DWMWINDOWATTRIBUTE` docs), not something `decorations(false)` was ever going to touch
+since it operates one layer below the window's own chrome settings. The documented suppression:
+`DwmSetWindowAttribute(DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE)`, via `windows-rs`.
+
+The last two Windows-specific fixes in this file both compiled clean on this sandbox's native
+Linux build and both turned out wrong on a real rebuild - because that build never actually
+touches Windows-only code at all, so "compiles" never meant anything for them beyond "the rest of
+the file still parses." This one is genuinely different: `windows-rs` and the DWM API are
+Windows-only, so there was no way to even type-check the actual new code without a Windows
+target. Rather than repeat the same blind-compile pattern a third time, installed the
+`x86_64-pc-windows-gnu` Rust target and the `mingw-w64` toolchain (`windres`, the GNU linker) in
+this sandbox and ran `cargo check --target x86_64-pc-windows-gnu` against it directly - no
+Windows machine needed, no linking to a runnable binary needed, just real type-checking against
+the real `windows` crate, the real `HWND`/`COLORREF` types, the real `DwmSetWindowAttribute`
+signature. It failed twice before succeeding, each time on something unrelated to the fix itself
+and informative in its own way: first on `tauri-build`'s own resource-path check for a
+`sidecar-bin-x86_64-pc-windows-gnu.exe` that doesn't exist in this Linux-only sandbox (worked
+around with empty placeholder files at the exact expected paths, deleted again right after -
+never committed), then on the build script needing `x86_64-w64-mingw32-windres` to embed the
+`.exe`'s resources, fixed by installing `mingw-w64` properly rather than stubbing further. With
+both out of the way, `cargo check --target x86_64-pc-windows-gnu` finished clean - the first of
+the three window-geometry/chrome fixes in this file that's actually been type-checked against
+real Windows APIs before being handed back for a real rebuild, not just read carefully and hoped
+to compile.
+
+New code is `#[cfg(windows)]`-gated (and the `windows` crate itself is a
+`[target.'cfg(windows)'.dependencies]` entry, matching the same `0.62.2` tauri-runtime-wry already
+resolves to transitively, so `tauri::Window::hwnd()`'s `HWND` and `DwmSetWindowAttribute`'s
+expected `HWND` are the same type, not two incompatible copies of the same crate), so it's a
+complete no-op on the native-Linux build every earlier round's own Xvfb testing uses - confirmed
+by a normal `cargo build` and fresh Xvfb smoke boot afterward, unchanged. What a cross-target
+`cargo check` cannot do is confirm the actual runtime behavior - whether the border is genuinely
+gone, whether it needs to be reapplied on focus-change events (one source found while researching
+this suggested it can revert), is still something only a real rebuild on the user's own Windows
+11 machine can answer.
