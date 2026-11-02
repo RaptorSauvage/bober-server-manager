@@ -3657,3 +3657,50 @@ the cache-busted href (`/favicon.png?v=06f7a967ba81d57025c96bbc53260cab`, matchi
 real hash) resolving to the same correct 200/PNG as before; and `tsc --noEmit -p
 tsconfig.node.json` against the real source tree passes clean, confirming this didn't break the
 type contract of a function three other things in this file still call.
+
+## The same bug, two more places - card icons and sidebar icons, not just the favicon
+
+The favicon fix held up (confirmed by the user opening the page fresh - "le favicon est apparu"),
+but surfaced the same root cause in two places that fix never touched: the small per-server-card
+game icon (an `<img>`, built client-side from `gameIconUrl` in the `/api/servers` JSON response)
+and the two static sidebar game-switch buttons' own `<img>` tags (`ark-evolved.png`,
+`minecraft.png`) in `DASHBOARD_HTML` itself. Same mechanism as the favicon: ordinary `<img>` tags
+go through the normal HTTP cache rather than Chromium's separate favicon database, but these are
+just as fixed a URL, and just as likely to have been requested once already - and cached as a
+broken image - by a browser that saw the same pre-`current_dir`-fix 404 the favicon did, before
+that fix ever landed. A hard refresh on a long-lived tab doesn't necessarily re-request an image
+the browser still considers fresh by its own (ETag-based, but apparently not reliably honored for
+a *previously-404'd* resource) cache logic - what actually surfaced this was the user opening the
+page in a genuinely new tab, where the favicon (cache-busted, so always a fresh fetch) worked but
+the card/sidebar icons (still the plain un-cache-busted URL at the time) didn't - direct evidence
+the bug lives in "this specific URL was once broken," not "this specific tab is stale."
+
+Fixed in the same real shared source (`webDashboard.ts`), the same way: a new `gameIconUrl()`
+helper (reusing `getGameIconBuffer`'s own cached ETag, same as the favicon reuses
+`getFaviconBuffer`'s) appends `?v=<content hash>` to every `/game-icons/...` URL this file hands
+out - the two dynamic ones in `/api/servers` (`arkServers`/`minecraftServers` each had their own
+inline template-literal URL, now both call the shared helper instead) and the two static ones in
+`DASHBOARD_HTML`, cache-busted the same way the favicon href already was inside
+`renderDashboardHtml`.
+
+Also worth being explicit about, since it looked like a fourth missing icon in the same report but
+isn't one: the small glyph on each server card's "Update" button (a plain `⬆` character, not an
+image) is not a bug - the code comment already sitting right above it (`buildServerCardV2`'s
+`addAction('update', ...)` call) explains this was a deliberate substitution: the desktop app's
+own Update button uses a small shield PNG this web context has no equivalent asset for, so the
+web dashboard was always built to use a plain text glyph in that one button's place instead. No
+change made there.
+
+A real mistake worth logging, not glossing over: the first attempt at verifying this exact fix
+produced a false negative - a from-scratch Node script fetched the HTML and found the *un*
+cache-busted `<img>` tags, looking exactly like the fix hadn't taken effect despite compiling and
+bundling cleanly. The actual cause: a stale sidecar process from an *earlier* verification script
+in this same session was still running and still bound to the dashboard's port, so the "fresh"
+fetch was silently served by old, pre-fix code on an already-occupied port rather than the
+newly-spawned process. Caught by checking for leftover `node .../sidecar.cjs` processes directly
+(`pgrep -fa`) rather than trusting that each test script's own cleanup (`child.kill('SIGKILL')`)
+had actually reached every process it should have - it hadn't, for one left over from a prior
+round. Killed it and re-ran the same verification script unchanged, which then showed the real,
+correct result (every `<img>` and `/api/servers` URL cache-busted, every one resolving to a real
+200). A reminder that a verification script's own result is only as trustworthy as knowing
+exactly which process answered it.

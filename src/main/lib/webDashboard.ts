@@ -235,6 +235,16 @@ function getGameIconBuffer(fileName: string): { buffer: Buffer; etag: string } |
   return result
 }
 
+// Same cache-busting reasoning as getFaviconBuffer's own comment and renderDashboardHtml's own
+// favicon href - these /game-icons/ URLs are just as fixed and just as likely to have been
+// requested once already (and cached as broken) by a browser that saw the pre-current_dir-fix
+// 404, be it the small per-card game icon (gameIconUrl in /api/servers, below) or the static
+// sidebar game-switch buttons' own <img> tags in DASHBOARD_HTML (see renderDashboardHtml).
+function gameIconUrl(fileName: string): string {
+  const icon = getGameIconBuffer(fileName)
+  return icon ? `/game-icons/${fileName}?v=${icon.etag.replace(/"/g, '')}` : `/game-icons/${fileName}`
+}
+
 /** Event categories that can be individually hidden from the web dashboard's feed. */
 const ALL_EVENT_LABELS = ['JOIN', 'LEFT', 'CHAT', 'WARN', 'KILL', 'TAME', 'CMD', 'SAVE', 'CRYO', 'MISSION', 'READY']
 
@@ -473,7 +483,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
         startedAt: status.startedAt ?? null,
         gameVersion: getCachedGameVersion(profile.id),
         statsEnabled: profile.statsEnabled,
-        gameIconUrl: `/game-icons/${game.iconFileName}`,
+        gameIconUrl: gameIconUrl(game.iconFileName),
         gameDisplayName: game.displayName,
         discordChatChannelId: profile.discordChatChannelId || undefined,
         discordEventsChannelId: profile.discordEventsChannelId || undefined,
@@ -504,7 +514,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
           // MC_SERVER_TYPE_ICON_URLS) where one exists - sparse by design, same as that map.
           serverType: profile.serverType,
           statsEnabled: undefined,
-          gameIconUrl: `/game-icons/${MINECRAFT_ICON_FILE_NAME}`,
+          gameIconUrl: gameIconUrl(MINECRAFT_ICON_FILE_NAME),
           gameDisplayName: 'Minecraft',
           discordBotExcluded: profile.discordBotExcluded
         }
@@ -1937,15 +1947,24 @@ export function getLocalNetworkIps(): string[] {
  *  /favicon.png 404 can keep "no icon" pinned to that exact URL indefinitely. Serving the icon
  *  at a URL the browser has never requested before (the query string here, not the path -
  *  routing above matches on pathname only) is the one thing that reliably forces a fresh fetch
- *  regardless of whatever the favicon database already has cached for the plain path. */
+ *  regardless of whatever the favicon database already has cached for the plain path.
+ *
+ *  Same treatment for the two static sidebar game-switch <img> tags (ark-evolved.png,
+ *  minecraft.png) - a real follow-up report ("still no icons on the cards or buttons either")
+ *  turned out to be these two plus the per-card gameIconUrl in /api/servers (see that route's
+ *  own use of the gameIconUrl() helper): ordinary <img> tags, not favicons, but hit by the
+ *  exact same root cause - these are just as fixed a URL, just as likely to have been
+ *  requested once already (and cached as a broken image) by a browser that saw the same
+ *  pre-current_dir-fix 404 the favicon did. */
 function renderDashboardHtml(authRequired: boolean): string {
+  let html = DASHBOARD_HTML
   const favicon = getFaviconBuffer()
-  const html = favicon
-    ? DASHBOARD_HTML.replace(
-        'href="/favicon.png"',
-        `href="/favicon.png?v=${favicon.etag.replace(/"/g, '')}"`
-      )
-    : DASHBOARD_HTML
+  if (favicon) {
+    html = html.replace('href="/favicon.png"', `href="/favicon.png?v=${favicon.etag.replace(/"/g, '')}"`)
+  }
+  html = html
+    .replace('src="/game-icons/ark-evolved.png"', `src="${gameIconUrl('ark-evolved.png')}"`)
+    .replace('src="/game-icons/minecraft.png"', `src="${gameIconUrl(MINECRAFT_ICON_FILE_NAME)}"`)
   if (!authRequired) return html
   return html.replace('<script>', '<script>window.__authRequired = true;</script>\n<script>')
 }
