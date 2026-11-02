@@ -1,0 +1,4211 @@
+:root {
+  color-scheme: dark;
+  --bg: #14161a;
+  --panel: #1d2027;
+  --border: #2c303a;
+  --text: #e6e8ec;
+  --muted: #9aa0ab;
+  --accent: #4f8cff;
+  --danger: #e0555b;
+  --danger-dark: #8f2c30;
+  --ok: #3fbf6f;
+  --warn: #e0a63f;
+  --cyan: #22d3ee;
+  --purple: #a78bfa;
+  --pink: #f472b6;
+  --status-running: #1f8a4c;
+  --status-starting: #7ee6a0;
+  --status-updating: #6fa8ff;
+  --status-stopping: #f2878b;
+  --status-stopped: #a83239;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* App.tsx renders <>{titleBar}{pageContent}</> at the root - a Fragment, so TitleBar and
+   whatever page is showing become direct siblings under #root rather than being wrapped in a
+   div of their own. This keeps the title bar pinned (flex-shrink: 0) while the page below it
+   fills and scrolls the rest of the frameless window (see frame: false in main/index.ts). */
+#root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+#root > .title-bar {
+  flex-shrink: 0;
+}
+
+#root > .title-bar ~ * {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.title-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  height: 40px;
+  padding: 0 6px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  /* Makes the bar draggable like a normal OS title bar now that frame: false removed the real
+     one - every interactive child below overrides this back to no-drag so it still works. */
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.title-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+
+.title-bar-menu {
+  position: relative;
+}
+
+.title-bar-menu-trigger {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--muted);
+  padding: 6px 10px;
+  font-size: 0.85rem;
+}
+
+.title-bar-menu-trigger:hover,
+.title-bar-menu-trigger.open {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.title-bar-dropdown {
+  position: absolute;
+  top: 36px;
+  left: 0;
+  /* Above .side-panel-overlay's z-index: 90 - a File/Tools menu opened while a drawer
+     (Settings, Map Manager, ...) is showing must stay clickable, since switching between
+     drawers straight from their own title bar menu is the whole point of not closing one
+     first. */
+  z-index: 95;
+  min-width: 200px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.title-bar-dropdown button {
+  all: unset;
+  cursor: pointer;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.title-bar-dropdown button:hover {
+  background: var(--bg);
+}
+
+.title-bar-dropdown hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
+}
+
+.title-bar-version-badge {
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.title-bar-title {
+  justify-self: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.title-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  justify-self: end;
+  -webkit-app-region: no-drag;
+}
+
+.title-bar-icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.title-bar-icon-btn:hover {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.title-bar-window-controls {
+  display: flex;
+  margin-left: 6px;
+}
+
+.title-bar-window-controls button {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--muted);
+  width: 44px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+}
+
+.title-bar-window-controls button:hover {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.title-bar-window-controls button.close:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+button {
+  cursor: pointer;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.9rem;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+button.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* Server card Start/Stop/Restart/Kill buttons - colored at rest like the Web Dashboard's
+   own per-server action buttons, rather than only on hover like the generic .danger class
+   above (still used as-is for unrelated destructive actions like Delete). Kill gets its own
+   darker red (--danger-dark) so it reads as distinct from - and more severe than - Stop. */
+.server-card-actions-primary button.start {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.server-card-actions-primary button.stop {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.server-card-actions-primary button.restart {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.server-card-actions-primary button.kill {
+  color: var(--danger-dark);
+  border-color: var(--danger-dark);
+}
+
+.server-card-actions-primary button.update {
+  color: var(--status-updating);
+  border-color: var(--status-updating);
+}
+
+button.active {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+button.btn-sm {
+  padding: 3px 10px;
+  font-size: 0.8rem;
+}
+
+input,
+select,
+textarea {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+
+/* The rule above sizes text inputs, but a checkbox/radio inherits its border+padding too -
+   with no fixed width, that padded box is free to grow into any leftover space in a flex
+   row (e.g. a wide, left-aligned label), and the browser paints the actual glyph centered
+   inside that grown box - so the visible checkbox appears to drift depending on how much
+   room its sibling label text leaves. Pinning it to a small fixed box keeps the glyph in
+   the same spot on every row regardless of label length. */
+input[type='checkbox'],
+input[type='radio'] {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+label.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Same look as `label` above, for a field made of more than one control (e.g. a checkbox
+ *  plus a text input) - a real <label> can't wrap another <label> without breaking which
+ *  control a click actually targets, so this is a plain block styled to match instead. */
+.field-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.field-block .checkbox {
+  flex: 0 0 auto;
+}
+
+.loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: var(--muted);
+}
+
+.loading-logo {
+  width: 72px;
+  height: 72px;
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: loading-spin 0.8s linear infinite;
+}
+
+@keyframes loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.empty-state {
+  color: var(--muted);
+}
+
+.error-message {
+  color: var(--danger);
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+
+
+.status-message {
+  color: var(--ok);
+  font-size: 0.85rem;
+}
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Icon-only rail - no text labels, just a centered icon per item (title="" on each button
+   gives a native tooltip instead, see App.tsx) - narrow enough that the sidebar reads as a
+   dock rather than a full nav panel. */
+.app-sidebar {
+  width: 64px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px 0;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
+
+/* Rounded pill highlight instead of the old flat-rectangle/left-border indicator - matches
+   the rounded-corner language the rest of the app uses now (cards, title bar dropdowns,
+   buttons) instead of the sharper edges this sidebar still had. Margin is left/right only
+   (never top/bottom) so it can never out-specificity .app-sidebar-bottom-group's own
+   margin-top: auto below - a plain `margin: 0 Npx` shorthand would set margin-top: 0 here,
+   and .app-sidebar button's two-part selector (class + tag) beats that group's one-part
+   class selector on specificity regardless of which rule comes later in the file, silently
+   cancelling the bottom-pinning (a real regression a past edit here introduced). */
+.app-sidebar button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  color: var(--muted);
+}
+
+.app-sidebar button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg);
+}
+
+.app-sidebar button.active {
+  color: var(--text);
+  background: rgba(79, 140, 255, 0.15);
+}
+
+.sidebar-icon {
+  flex-shrink: 0;
+  width: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+}
+
+.sidebar-icon.icon-mask {
+  width: 22px;
+  height: 22px;
+}
+
+.app-sidebar-game-switch {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 0 14px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-sidebar-game-switch button {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0;
+}
+
+.app-sidebar-game-switch button img {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  /* Dims the icon when its mode isn't the active one - same "muted until active" language
+     the rest of the sidebar's text buttons already use. */
+  opacity: 0.55;
+}
+
+.app-sidebar-game-switch button.active {
+  border-color: var(--accent);
+  background: rgba(79, 140, 255, 0.15);
+  color: var(--text);
+}
+
+.app-sidebar-game-switch button.active img {
+  opacity: 1;
+}
+
+/* Pins What's New/Log/Settings together as a group at the bottom of the sidebar (regardless
+   of how many nav buttons come before it, ARK's or Minecraft's) via the sidebar's own
+   flex-column layout - the margin goes on the first of the three so the group stays
+   adjacent, separated from the rest of the nav by the gap/border instead of each button
+   pushing independently to its own edge. */
+.app-sidebar-bottom-group {
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 2px;
+}
+
+.app-content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* PlayersView's own small left sidebar (Bans/Activity) - same look as .app-sidebar's button
+   style but scoped to this one nested view instead of reusing .app-shell/.app-sidebar
+   directly, which set min-height: 100vh and would fight with this view's own header above
+   it for vertical space. */
+.players-view-body {
+  display: flex;
+  gap: 0;
+}
+
+.players-view-sidebar {
+  width: 140px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 0;
+}
+
+.players-view-sidebar button {
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  padding: 10px 16px;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.players-view-sidebar button:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.players-view-sidebar button.active {
+  color: var(--text);
+  border-left-color: var(--accent);
+  background: rgba(79, 140, 255, 0.1);
+}
+
+.players-view-content {
+  flex: 1;
+  min-width: 0;
+  padding-left: 16px;
+  border-left: 1px solid var(--border);
+}
+
+.player-roster-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.player-roster-card {
+  flex: 1 1 380px;
+  max-width: 480px;
+}
+
+.player-roster-count {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.ban-picker-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin: 8px 0;
+}
+
+.ban-picker-column {
+  min-width: 160px;
+}
+
+.ban-picker-column h4 {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+.ban-picker-option {
+  display: block;
+  padding: 2px 0;
+}
+
+.cluster-data-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cluster-data-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 18px;
+}
+
+.cluster-data-row-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cluster-data-row-header h3 {
+  margin: 0;
+}
+
+.cluster-data-row-sub {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.cluster-data-stats {
+  display: flex;
+  gap: 28px;
+}
+
+.cluster-data-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 0.85em;
+}
+
+.cluster-data-stat span {
+  color: var(--muted);
+}
+
+.cluster-data-row.clickable {
+  cursor: pointer;
+}
+
+.cluster-data-row.clickable:hover {
+  border-color: var(--accent);
+}
+
+.cluster-data-chart {
+  width: 100%;
+}
+
+.cluster-data-chart-note {
+  color: var(--warn);
+  font-size: 0.8rem;
+  margin: 0 0 6px;
+}
+
+.manager-log-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.manager-log-feed {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.manager-log-task {
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  padding-bottom: 4px;
+  padding-left: 8px;
+}
+
+/* One color per event category, reusing the same colors as elsewhere in the app where a
+   category already has one (Start/Stop/Restart/Kill match the Dashboard card buttons,
+   Update matches the Update button/badge) so the same event always reads the same color
+   everywhere it shows up. */
+.manager-log-task--start { border-left-color: var(--ok); }
+.manager-log-task--start .manager-log-task-header strong { color: var(--ok); }
+.manager-log-task--stop { border-left-color: var(--danger); }
+.manager-log-task--stop .manager-log-task-header strong { color: var(--danger); }
+.manager-log-task--restart { border-left-color: var(--warn); }
+.manager-log-task--restart .manager-log-task-header strong { color: var(--warn); }
+.manager-log-task--kill { border-left-color: var(--danger-dark); }
+.manager-log-task--kill .manager-log-task-header strong { color: var(--danger-dark); }
+.manager-log-task--update { border-left-color: var(--status-updating); }
+.manager-log-task--update .manager-log-task-header strong { color: var(--status-updating); }
+.manager-log-task--schedule { border-left-color: var(--cyan); }
+.manager-log-task--schedule .manager-log-task-header strong { color: var(--cyan); }
+.manager-log-task--backup { border-left-color: var(--purple); }
+.manager-log-task--backup .manager-log-task-header strong { color: var(--purple); }
+.manager-log-task--restore { border-left-color: var(--pink); }
+.manager-log-task--restore .manager-log-task-header strong { color: var(--pink); }
+.manager-log-task--crash { border-left-color: var(--danger); }
+.manager-log-task--crash .manager-log-task-header strong { color: var(--danger); }
+
+.manager-log-task:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.manager-log-task-header {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 2px;
+}
+
+.manager-log-task-entries {
+  padding-left: 14px;
+}
+
+.manager-log-line {
+  margin: 0;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.manager-log-time {
+  color: var(--muted);
+  margin-right: 6px;
+  font-family: monospace;
+  font-size: 0.85em;
+}
+
+.group-console-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 24px;
+  gap: 12px;
+}
+
+.group-console-page .server-detail-header {
+  flex-shrink: 0;
+}
+
+.group-console-body {
+  display: flex;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+.group-console-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 12px;
+}
+
+.group-console-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.group-console-filters .checkbox {
+  gap: 4px;
+  color: var(--text);
+}
+
+.mc-console-controls {
+  justify-content: flex-end;
+}
+
+.group-console-rcon {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.group-console-rcon select {
+  flex-shrink: 0;
+  width: 160px;
+}
+
+.group-console-rcon input {
+  flex: 1;
+}
+
+.group-console-rcon-results {
+  flex-shrink: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.group-console-rcon-results p {
+  margin: 2px 0;
+}
+
+.rcon-result-ok {
+  color: var(--ok);
+}
+
+.rcon-result-error {
+  color: var(--danger);
+}
+
+.group-console-divider {
+  width: 1px;
+  flex-shrink: 0;
+  background: var(--border);
+}
+
+.group-console-sidebar {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.group-console-cluster-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.official-status-panel .group-console-cluster-stats {
+  background: var(--bg);
+}
+
+.group-console-cluster-stats div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.group-console-cluster-stats dt {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.group-console-cluster-stats dd {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.8rem;
+}
+
+.server-context-menu {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  min-width: 140px;
+}
+
+.server-context-menu button {
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.server-context-menu button:hover:not(:disabled) {
+  background: var(--bg);
+}
+
+.server-context-menu button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.server-summary-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.server-summary-card:hover {
+  border-color: var(--accent);
+}
+
+.server-summary-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.server-summary-card-header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.server-summary-card-info {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin: 0;
+}
+
+.server-summary-card-info div {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+}
+
+.server-summary-card-info dt {
+  color: var(--muted);
+}
+
+@media (max-width: 1100px) {
+  .group-console-body {
+    flex-direction: column;
+  }
+
+  .group-console-divider {
+    display: none;
+  }
+
+  .group-console-sidebar {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .group-console-cluster-stats {
+    width: 100%;
+  }
+
+  .server-summary-card {
+    flex: 1;
+    min-width: 220px;
+  }
+}
+
+.group-console-feed {
+  flex: 1;
+  min-height: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  overflow-y: auto;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
+  font-size: 0.85rem;
+}
+
+/** Same look as .group-console-feed above (ARK's own Group Console, still a plain React
+ *  list), but overflow: hidden instead of overflow-y: auto - ConsoleTab.tsx's xterm.js
+ *  terminal manages its own scrollback/scrolling entirely on its own canvas, so the
+ *  container itself must not also try to scroll (xterm sizes its own viewport to fill this
+ *  element via FitAddon). */
+.mc-console-terminal {
+  flex: 1;
+  min-height: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  overflow: hidden;
+}
+
+.console-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* Fills essentially the full window height minus the page's own fixed-height chrome
+     (header, tab nav, padding) - a plain 60vh (the previous value) left a large empty gap
+     below the feed on anything but a short window. */
+  height: calc(100vh - 200px);
+}
+
+.log-event {
+  padding: 3px 0;
+  line-height: 1.4;
+}
+
+.log-event .date {
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+.log-event .ts {
+  color: var(--muted);
+  margin-right: 8px;
+}
+
+.log-event .server-tag {
+  color: #2dd4bf;
+  margin-right: 8px;
+}
+
+.log-event .label {
+  font-weight: 700;
+  margin-right: 8px;
+}
+
+.log-event .text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-event-join .label,
+.log-event-ready .label,
+.log-event-start .label {
+  color: var(--status-running);
+}
+
+.log-event-leave .label,
+.log-event-stop .label {
+  color: var(--status-stopped);
+}
+
+.log-event-start .text {
+  color: var(--status-running);
+}
+
+.log-event-stop .text {
+  color: var(--status-stopped);
+}
+
+.log-event-update .label,
+.log-event-update .text {
+  color: var(--status-updating);
+}
+
+.log-event-save .label {
+  color: var(--muted);
+}
+
+.log-event-cmd .label,
+.log-event-freeze .label {
+  color: var(--accent);
+}
+
+.log-event-warn .label,
+.log-event-mission .label {
+  color: var(--warn);
+}
+
+.log-event-kill .label {
+  color: var(--danger);
+}
+
+.log-event-tame .label {
+  color: var(--ok);
+}
+
+.log-event-join .player {
+  color: var(--status-running);
+}
+
+.log-event-leave .player {
+  color: var(--status-stopped);
+}
+
+.dashboard {
+  padding: 24px;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.dashboard-header h1 {
+  font-size: 1.6rem;
+  margin: 0;
+}
+
+.dashboard-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-accent {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b1220;
+  font-weight: 600;
+}
+
+.btn-accent:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+/* Matches on name or group, case-insensitively - see Dashboard.tsx's own matchesSearch. Now
+   sits on the toolbar row (same line as the Status/Map/Sort filters) instead of the header,
+   centered between the filters and the Grid/List toggle - see .toolbar below. */
+.dashboard-search {
+  width: 280px;
+  max-width: 100%;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  justify-self: center;
+}
+
+/* HardwareStatsBar.tsx - the managed ARK servers' own summed CPU/RAM usage (not the whole
+   machine's - see that component's own doc comment for why). Two cards, not three - there's
+   no meaningful per-server network number to show a third card for. */
+.hw-stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.hw-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hw-card-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hw-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.hw-icon img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.hw-icon.network {
+  background: var(--purple);
+  color: #fff;
+}
+
+.hw-icon.network .icon-mask {
+  width: 19px;
+  height: 19px;
+}
+
+.hw-net-values {
+  display: flex;
+  gap: 10px;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.hw-card-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.hw-card-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.hw-bar {
+  height: 6px;
+  border-radius: 4px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.hw-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+}
+
+.hw-card-sub {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.dashboard-body {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.dashboard-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.dashboard-sidebar {
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+@media (max-width: 1100px) {
+  .dashboard-body {
+    flex-direction: column;
+  }
+
+  .dashboard-sidebar {
+    width: 100%;
+  }
+}
+
+.official-status-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.official-status-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.official-status-header h3 {
+  margin: 0;
+}
+
+.official-status-line {
+  margin: 0;
+}
+
+.official-status-value {
+  font-weight: 600;
+}
+
+.btn-update-restart {
+  color: var(--cyan);
+  border-color: var(--cyan);
+}
+
+.server-grid {
+  /* auto-fill (not auto-fit): auto-fit collapses a short row's unused tracks to 0px, which
+     left a gap of dead space after the last card. auto-fill keeps those tracks in the layout
+     at their normal minmax() size even with no card in them, so a 3-card row's cards are sized
+     exactly like a full row's (not stretched to fill the row, not capped smaller either) and
+     the leftover space is just the trailing empty tracks, not a differently-sized card. 340px
+     (down from the old 460px/380px grid caps) is what makes a 2K-class window fit 6 per row. */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 340px));
+  gap: 16px;
+}
+
+.hidden-servers,
+.server-group {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.hidden-servers summary,
+.server-group summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.server-group summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.server-group-name {
+  flex: 1;
+}
+
+.group-bulk-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.group-bulk-actions button {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.group-bulk-actions button.start {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.group-bulk-actions button.stop {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.group-bulk-actions button.restart {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.group-bulk-actions button.update {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.server-group.dragging {
+  opacity: 0.4;
+}
+
+.hidden-servers .server-grid,
+.server-group .server-grid {
+  margin-top: 12px;
+}
+
+.server-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.server-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.server-card-header h2 {
+  margin: 0;
+  flex: 1;
+  font-size: 1.1rem;
+}
+
+.server-card-game-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.server-type-value {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.server-type-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.mc-mods-browse-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.server-type-icon-large {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.drag-handle {
+  cursor: grab;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  user-select: none;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.server-card.dragging {
+  opacity: 0.4;
+}
+
+.badge {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+}
+
+.badge-running {
+  color: var(--status-running);
+  border-color: var(--status-running);
+}
+
+.badge-starting {
+  color: var(--status-starting);
+  border-color: var(--status-starting);
+}
+
+.badge-updating {
+  color: var(--status-updating);
+  border-color: var(--status-updating);
+}
+
+.badge-stopping {
+  color: var(--status-stopping);
+  border-color: var(--status-stopping);
+}
+
+.badge-stopped {
+  color: var(--status-stopped);
+  border-color: var(--status-stopped);
+}
+
+.badge-restarting {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.badge-error {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.badge-scheduled {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.badge-disabled {
+  color: var(--muted);
+  border-color: var(--border);
+}
+
+.server-card-info {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.server-card-info div {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+}
+
+.server-card-info dt {
+  color: var(--muted);
+}
+
+.server-card-info-address {
+  grid-column: 1 / -1;
+}
+
+.copyable-address {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--text);
+  font-size: 0.85rem;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+.copyable-address:hover {
+  color: var(--accent);
+}
+
+.analytics-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin: 0;
+}
+
+.analytics-grid div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.analytics-grid dt {
+  color: var(--muted);
+}
+
+.server-status-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.server-status-fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.file-shortcuts {
+  flex-shrink: 0;
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 20px;
+  border-left: 1px solid var(--border);
+}
+
+.file-shortcuts-label {
+  color: var(--muted);
+  font-size: 0.85em;
+  margin-bottom: 2px;
+}
+
+.status-ok {
+  color: var(--status-running);
+}
+
+.status-warn {
+  color: var(--danger);
+}
+
+.status-offline {
+  color: var(--status-stopping);
+}
+
+.server-card-actions-primary,
+.server-card-actions-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.server-card-actions-primary button {
+  flex: 1 1 0;
+  padding: 6px 4px;
+  font-size: 0.8rem;
+}
+
+/* --- Dashboard "lifted" server card (renderCard in Dashboard.tsx) - denser than the plain
+   .server-card above, with a status-colored left border, inline version number, icon-only
+   action row, and a "..." dropdown replacing the Manage/Hide/Delete button row. The toolbar
+   (search/status/map/sort filters + grid/list toggle) and the list-table alternate view
+   live in this same block since they're all part of the same redesign. */
+/* 3-column grid (same technique as .title-bar) so the search box stays centered on this row
+   regardless of how wide the filters on the left or the Grid/List toggle on the right are. */
+.toolbar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.toolbar-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.toolbar .view-toggle {
+  justify-self: end;
+}
+
+.view-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-left: auto;
+}
+
+.view-toggle button {
+  border: none;
+  border-radius: 0;
+}
+
+.view-toggle button.active {
+  background: var(--accent);
+  color: #0b1220;
+}
+
+.server-card-v2 {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--status-stopped);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.server-card-v2.status-running {
+  border-left-color: var(--status-running);
+}
+
+.server-card-v2.status-starting {
+  border-left-color: var(--status-starting);
+}
+
+.server-card-v2.status-updating {
+  border-left-color: var(--status-updating);
+}
+
+.server-card-v2.status-stopping {
+  border-left-color: var(--status-stopping);
+}
+
+/* No --status-restarting/--status-error custom property exists (unlike the other states) -
+   .badge-restarting/.badge-error already use --warn/--danger directly instead, so this
+   matches that rather than inventing new colors nothing else would share. */
+.server-card-v2.status-restarting {
+  border-left-color: var(--warn);
+}
+
+.server-card-v2.status-error {
+  border-left-color: var(--danger);
+}
+
+.server-card-v2.dragging {
+  opacity: 0.4;
+}
+
+.server-card-v2-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.server-card-v2-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.server-card-v2-title h3 {
+  margin: 0;
+  font-size: 1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.server-version {
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.card-menu-btn {
+  padding: 2px 7px;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.card-menu-dropdown {
+  position: absolute;
+  top: 40px;
+  right: 14px;
+  z-index: 20;
+  /* Wider than half the card's own width (260-340px, see .server-grid) now that the first
+     group lists every Manage tab directly instead of just "Manage"/"Settings" - enough room
+     for the longest labels ("Server Management", "Map Management") plus their icon without
+     wrapping. */
+  width: 230px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+  display: none;
+  flex-direction: column;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+}
+
+.card-menu-dropdown.open {
+  display: flex;
+}
+
+.card-menu-group {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+
+.card-menu-group + .card-menu-group {
+  border-top: 1px solid var(--border);
+}
+
+.card-menu-dropdown button {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.card-menu-icon {
+  flex-shrink: 0;
+}
+
+.card-menu-dropdown button:hover {
+  background: var(--bg);
+}
+
+.card-menu-dropdown button.danger {
+  color: var(--danger);
+}
+
+/* Inline-expanding "Group" submenu inside a card's ... menu - pushes the rest of the menu
+   down rather than a hover flyout, so it never runs off the dropdown's edge. */
+.card-menu-submenu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 2px 10px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.card-menu-submenu button {
+  font-size: 0.82rem;
+}
+
+.card-menu-submenu button.active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.card-menu-submenu-new {
+  display: flex;
+  gap: 4px;
+  padding: 4px 10px 2px;
+}
+
+.card-menu-submenu-new input {
+  flex: 1;
+  font-size: 0.8rem;
+  padding: 5px 7px;
+}
+
+.card-menu-submenu-new button {
+  all: unset;
+  cursor: pointer;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #0b1220;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.card-menu-submenu-new button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.stat-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.stat-tile {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 6px 7px;
+}
+
+.stat-tile-label {
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+
+.stat-tile-value {
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Icon-only action row - same colored-at-rest + button:disabled opacity-dim behavior as
+   .server-card-actions-primary above (keep the color, don't flatten it to grey). */
+.action-row,
+.action-row-list {
+  display: flex;
+  gap: 5px;
+}
+
+.action-row button,
+.action-row-list button {
+  flex: 1;
+  padding: 6px 0;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.action-row-list button {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+}
+
+.action-row button.start,
+.action-row-list button.start {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.action-row button.stop,
+.action-row-list button.stop {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.action-row button.restart,
+.action-row-list button.restart {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.action-row button.update,
+.action-row-list button.update {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.action-row button.kill,
+.action-row-list button.kill {
+  color: var(--danger-dark);
+  border-color: var(--danger-dark);
+}
+
+/* Renders the Update button's shield icon in the button's own color (currentColor) instead of
+   whatever color the source PNG happens to be - mask-image clips a solid-color box to the
+   icon's alpha shape, so the icon always matches button.update's blue even if the source art
+   changes again later. */
+.icon-mask {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  background-color: currentColor;
+  -webkit-mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+}
+
+.server-list-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  margin-bottom: 14px;
+}
+
+.server-list-table th,
+.server-list-table td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.server-list-table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.server-list-table tr:hover td {
+  background: var(--bg);
+}
+
+.log-output {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  max-height: 240px;
+  overflow: auto;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.server-detail {
+  padding: 24px;
+}
+
+.server-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.server-detail-header h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.changelog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 640px;
+}
+
+.changelog-entry {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 18px;
+}
+
+.changelog-entry-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.changelog-entry-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.changelog-date {
+  color: var(--muted);
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+.changelog-entry ul {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.changelog-entry li {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.tab-nav {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.tab-nav button {
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  padding: 10px 14px;
+}
+
+.tab-nav button.active {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Settings drawer (DataSettingsView) - a left nav grouped into sections (Application,
+   Integrations, ...) next to the active section's own content, replacing the old single row
+   of top tabs so there's room to grow the nav without it wrapping. */
+.settings-view {
+  padding: 0 !important;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.settings-view .server-detail-header {
+  padding: 24px 24px 0;
+  margin-bottom: 16px;
+}
+
+.settings-shell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.settings-nav {
+  width: 220px;
+  flex-shrink: 0;
+  padding: 0 10px 24px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.settings-nav-group + .settings-nav-group {
+  margin-top: 18px;
+}
+
+.settings-nav-group-label {
+  padding: 0 10px 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.settings-nav button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.settings-nav button:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.settings-nav button.active {
+  background: rgba(79, 140, 255, 0.15);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.settings-nav-icon {
+  flex-shrink: 0;
+}
+
+.settings-content {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 0 24px 24px;
+}
+
+.settings-content-header {
+  margin-bottom: 18px;
+}
+
+.settings-content-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 1.2rem;
+}
+
+.settings-content-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.settings-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 520px;
+}
+
+/* The app-wide Settings screen's own wrapper (distinct from .settings-tab, which the
+   Backups tab's two side-by-side mini-forms also use and which should keep their narrower
+   single-column layout). Blocks keep a consistent width and wrap across the available
+   width instead of one long column of unrelated fields down the left, same treatment as
+   .server-settings-tab. display: contents on the <form> itself lets its <section> children
+   participate directly in this flex-wrap layout instead of the whole form being one item. */
+.app-settings-view {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.app-settings-form {
+  display: contents;
+}
+
+.app-settings-view .cluster-section,
+.app-settings-view > .accounts-section,
+.app-settings-view > .managed-steamcmd {
+  flex: 1 1 380px;
+  max-width: 480px;
+  margin-bottom: 0;
+}
+
+.app-settings-view .form-actions {
+  flex: 1 1 100%;
+  max-width: none;
+}
+
+/* The per-server Settings tab's own wrapper (distinct from .settings-tab, which the
+   app-wide Settings screen and the Backups tab's two side-by-side mini-forms also use and
+   which should keep their narrower single-column layout). Blocks (each grouped section,
+   or a standalone field) keep a consistent width and wrap across the available width
+   instead of stacking in one narrow column that leaves most of a wide window empty. */
+.server-settings-tab {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.server-settings-tab > .cluster-section,
+.server-settings-tab > label {
+  flex: 1 1 380px;
+  max-width: 480px;
+}
+
+.server-settings-tab > .form-actions,
+.server-settings-tab > .error-message,
+.server-settings-tab > .empty-state,
+.server-settings-tab > .launch-command-section {
+  flex: 1 1 100%;
+  max-width: none;
+}
+
+/* A visually nested grouping inside the Server section - Map and Mod Map belong together
+   (a custom map's Workshop mod id only matters alongside the Map above it) without being
+   their own top-level section. */
+.map-subgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.managed-steamcmd {
+  max-width: 520px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.managed-steamcmd h3 {
+  margin: 0;
+}
+
+.accounts-section {
+  max-width: 620px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.accounts-section h3 {
+  margin: 0;
+}
+
+.accounts-add-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.accounts-add-form > input {
+  flex: 1;
+  min-width: 120px;
+}
+
+.server-picker {
+  position: relative;
+}
+
+.server-picker-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 160px;
+  justify-content: space-between;
+}
+
+.server-picker-caret {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.server-picker-menu {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 4px);
+  left: 0;
+  width: max-content;
+  min-width: 200px;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.server-picker-option {
+  width: 100%;
+  box-sizing: border-box;
+  justify-content: flex-start;
+  padding: 6px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.server-picker-option:hover {
+  background: var(--bg);
+}
+
+.accounts-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.accounts-table th,
+.accounts-table td {
+  text-align: left;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.accounts-table th:first-child,
+.accounts-table td:first-child {
+  width: 34%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accounts-table th:nth-child(2),
+.accounts-table td:nth-child(2) {
+  width: 20%;
+}
+
+.accounts-table td:nth-child(2) select {
+  width: 100%;
+}
+
+.access-tokens-table th:nth-child(3),
+.access-tokens-table td:nth-child(3) {
+  width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accounts-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.accounts-row-editing td {
+  vertical-align: top;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.accounts-row-edit-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cluster-section {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cluster-section h3 {
+  margin: 0;
+}
+
+.install-minecraft-panel {
+  margin-bottom: 16px;
+}
+
+.stats-section-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.stats-section-header h3 {
+  margin: 0;
+}
+
+.stats-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.stats-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.9em;
+  cursor: pointer;
+}
+
+.time-scale-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85em;
+}
+
+.time-scale-selector span {
+  color: var(--muted);
+}
+
+.time-scale-btn {
+  padding: 3px 10px;
+  font-size: 0.85em;
+}
+
+.stats-charts-grid {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.stats-chart {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.stats-chart + .stats-chart {
+  border-top: 1px solid var(--border);
+}
+
+.stats-chart-label {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 64px;
+  padding: 6px 0 6px 10px;
+  font-size: 0.85em;
+}
+
+.stats-chart-label span {
+  color: var(--muted);
+}
+
+.stats-chart-svg-wrap {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  height: 150px;
+  background: var(--bg);
+  cursor: crosshair;
+}
+
+.stats-chart-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.stats-chart-hover-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--muted);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.stats-chart-tooltip {
+  position: absolute;
+  top: 6px;
+  /* transform is set inline per-hover (see tooltipTransform in ServerStatsChart.tsx) so it
+     can anchor to the near edge instead of overflowing past it close to x=0%/100%. */
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.75em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.games-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.games-list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.games-list-item span:first-of-type {
+  flex: 1;
+}
+
+.games-list-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.path-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.path-input-row input,
+.path-input-row select,
+.path-input-row textarea {
+  flex: 1;
+}
+
+.launch-command-preview {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.8rem;
+  resize: vertical;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.launch-command-section > button {
+  align-self: flex-start;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.raw-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.raw-editor textarea {
+  width: 100%;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+.mods-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mods-copy-paste {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mods-copy-paste h3 {
+  margin: 0;
+}
+
+.mods-paste-area {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+/* Blocks keep a consistent width and wrap across the available width instead of stacking
+   in one narrow column that leaves most of a wide window empty (same treatment as the
+   Settings tab's own .server-settings-tab). */
+.server-management-tab {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.server-management-tab > .schedule-section {
+  flex: 1 1 380px;
+  max-width: 480px;
+}
+
+/* Any stray text directly in this flex-wrap row (not inside a .schedule-section) needs an
+   explicit full-width flex-basis, or its intrinsic (unwrapped, single-line) width is used
+   for flex sizing instead - the same bug fixed for .server-settings-tab above, guarded
+   here too since both tabs share this row-wrap layout. */
+.server-management-tab > .error-message,
+.server-management-tab > .empty-state {
+  flex: 1 1 100%;
+  max-width: none;
+}
+
+.schedule-section {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.schedule-section h3 {
+  margin: 0;
+  color: var(--accent);
+}
+
+.schedule-subsection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.schedule-subsection + .schedule-subsection {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.schedule-subsection h4 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.schedule-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.schedule-picker-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+/* All 7 day checkboxes as their own row, separate from the enable checkbox + time input
+   above - kept together as one group instead of some days trailing after the time input on
+   its row and the rest spilling onto a second row misaligned with the first. */
+.schedule-days-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.schedule-day {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.schedule-suboptions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 20px;
+}
+
+.schedule-countdown {
+  margin: 0;
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.rcon-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+}
+
+.rcon-entry + .rcon-entry {
+  border-top: 1px solid var(--border);
+}
+
+/* MCSS-inspired trigger-type picker (adapted to ARK) - three equal cards instead of a
+   dropdown, so the three choices and their one-line description are all visible at once
+   rather than hidden behind a click. */
+.rcon-trigger-cards {
+  display: flex;
+  gap: 8px;
+}
+
+.rcon-trigger-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  text-align: center;
+}
+
+.rcon-trigger-card strong {
+  font-size: 0.85rem;
+  color: inherit;
+}
+
+.rcon-trigger-card span {
+  font-size: 0.72rem;
+}
+
+.rcon-trigger-card:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.rcon-trigger-card.active {
+  border-color: var(--accent);
+  background: rgba(79, 140, 255, 0.1);
+  color: var(--text);
+}
+
+/* Wraps the "Add mod ID" row and the grid together so they share one left/right edge and move
+   together - without this, centering them *separately* (each with its own narrower max-width)
+   centered them on the same point but left their *left edges* different, which read as broken/
+   misaligned (a real report: the Add row stayed pinned to the page's own left edge while the
+   grid centered itself below it).
+   .mods-tab is `display: flex; flex-direction: column`, so .ark-mods-list is itself a flex
+   item - confirmed (by dropping the cap entirely to a plain width: 100% and seeing that
+   actually, visibly, fill the tab edge-to-edge) that a flex item's own width genuinely does
+   apply here. What's suspect in hindsight is centering it with `margin: 0 auto`: three rounds
+   of max-width + margin: 0 auto (1100px, 1200px, a 95% percentage) each came back
+   indistinguishable from the last - plausible if the cap was actually narrowing it correctly
+   each time but the auto-margin centering silently never took effect, leaving it flush-left at
+   each (similar-looking) narrower width instead of centered, which would explain "hasn't
+   moved" between three cosmetically-similar flush-left results. align-self: center is a more
+   direct, less indirection-dependent way to center a single flex item along its container's
+   cross axis than relying on its margins absorbing leftover space - used here instead. */
+.ark-mods-list {
+  width: 100%;
+  max-width: 1600px;
+  align-self: center;
+}
+
+.mods-add {
+  display: flex;
+  gap: 8px;
+  max-width: 520px;
+  margin-bottom: 12px;
+}
+
+.mods-add input {
+  flex: 1;
+}
+
+/*
+ * CSS Grid, not a <table> - same reasoning, and the exact same proven fix, as the Minecraft
+ * Mods tab's own mc-mods-grid (see styles.css's own comment above those rules for the full
+ * story): HTML table auto-layout sizes a column from the single most demanding piece of
+ * content anywhere in that column across every row at once, which is exactly what produced a
+ * real, reported misalignment between this table's own Mod ID/Name columns and its right-most
+ * actions column once rows started carrying longer CurseForge-resolved names. Grid sidesteps
+ * it entirely: grid-template-columns declares each column's width explicitly and identically
+ * for the header row and every data row (flowing left-to-right/top-to-bottom through the same
+ * column tracks as direct children of the same grid container - see the Fragment-per-row
+ * markup in ModsTab.tsx), so a column's width no longer depends on anything any row's content
+ * does.
+ */
+.ark-mods-grid {
+  display: grid;
+  width: 100%;
+  column-gap: 8px;
+}
+
+/* Ascended has Passive/Dev checkbox columns Evolved doesn't (see ModsTab.tsx's own isEvolved
+   gating) - Mod ID is a known-bounded small vocabulary (short numeric ids, nothing that can
+   produce a surprise long outlier) so a fixed track is fine, and the checkbox columns are a
+   fixed, identical width on every row. Name is back to minmax(0, 1fr) - capping it
+   (minmax(0, 360px)) to stop it from claiming all the way out to the edge of a multi-thousand-
+   pixel-wide browser window just made the whole grid shrink-wrap down to a visibly tiny table
+   (a real report: "too shrunk") once .ark-mods-list above started capping/centering the overall
+   layout instead. With that outer cap already doing the "don't stretch edge-to-edge" job, Name
+   claiming the rest of *that* bounded width is the right amount of stretch - comfortably sized
+   without reproducing the original edge-to-edge gap problem. */
+.ark-mods-grid--ascended {
+  grid-template-columns: 90px 90px 90px 120px minmax(0, 1fr) auto;
+}
+
+.ark-mods-grid--evolved {
+  grid-template-columns: 90px 120px minmax(0, 1fr) auto;
+}
+
+.ark-mods-grid-header,
+.ark-mods-grid-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.ark-mods-grid-header {
+  font-weight: 600;
+}
+
+.ark-mods-grid-empty {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  padding: 8px;
+}
+
+.ark-mods-grid-cell.mod-disabled {
+  opacity: 0.5;
+}
+
+.ark-mods-grid-actions {
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.mods-select-col-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mod-name-input {
+  width: 100%;
+}
+
+.ark-mod-name-cell {
+  gap: 8px;
+}
+
+.ark-mod-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.mod-id {
+  color: var(--warn);
+  white-space: nowrap;
+  justify-content: center;
+  text-align: center;
+}
+
+/* ARK: Survival Ascended's own CurseForge enrichment (ModsTab.tsx's arkInfo) - a real icon
+   resolved from CurseForge next to a mod's Name cell, same role as the Minecraft Mods tab's own
+   mc-mod-icon but named separately since ARK mods aren't downloaded/installed through this app
+   the way Minecraft ones are (see arkMods.ts), just referenced by id. */
+.ark-mod-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.ark-mods-search {
+  margin-bottom: 20px;
+}
+
+.ark-mod-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.ark-mod-search-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.ark-mod-search-result-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+
+.ark-mod-search-result-name {
+  font-weight: 600;
+}
+
+.ark-mod-search-result-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.ark-mod-search-result-downloads {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.backup-settings-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+
+.backup-settings-row > .backup-settings {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  margin-bottom: 0;
+}
+
+@media (max-width: 900px) {
+  .backup-settings-row {
+    flex-direction: column;
+  }
+}
+
+.backup-settings {
+  max-width: 520px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+}
+
+.backup-settings h3 {
+  margin: 0;
+}
+
+.backup-sections {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.backup-sections > * {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .backup-sections {
+    flex-direction: column;
+  }
+}
+
+.backup-management {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.backup-management h3 {
+  margin: 0;
+}
+
+.backup-management-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.btn-refresh-backups {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.btn-open-backup-folder {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.btn-restore-backup {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.btn-delete-backup {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.backups-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.backups-table th,
+.backups-table td {
+  text-align: left;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.backups-table tbody tr {
+  cursor: pointer;
+}
+
+.backups-table tbody tr:hover {
+  background: var(--bg);
+}
+
+.backups-table tbody tr.selected {
+  background: var(--accent);
+  color: #fff;
+}
+
+/*
+ * CSS Grid, not a <table>. Three rounds of fixing the <table>-based version (narrow-column
+ * width hints, flex-wrap, shrink-to-fit sizing, max-width caps on the Name column) each solved
+ * one real symptom but never the actual disease: HTML table auto-layout sizes a column based on
+ * the single most demanding piece of content anywhere in that column, across every row at once
+ * - there is no way to tell it "give normal rows a normal width and let only the one outlier
+ * truncate instead." A real screenshot of 357 installed mods kept showing the same shape of bug
+ * (a dead gap between Name and Source) through every one of those rounds, each time for a
+ * subtly different reason.
+ *
+ * Grid sidesteps this entirely: `grid-template-columns` declares each column's width explicitly
+ * and identically for the header row and every data row (they're all just direct children of
+ * the same grid container, flowing left-to-right/top-to-bottom through the same column tracks -
+ * see the Fragment-per-row markup in ModsTab.tsx). A column's width no longer depends on
+ * anything any row's content does; an overflowing value just truncates on its own
+ * (mc-mod-title), it can never push the column - or any other row - wider.
+ */
+/* width: 100% is safe here in a way it never was for the old <table> - Name's `minmax(0, 1fr)`
+   track (see the two variants below) is the only one that grows to fill leftover space, and
+   `fr` distribution is a deterministic share of the grid's own width, not content-dependent the
+   way table auto-layout's "leftover space" was. There's no outlier-content failure mode to
+   reintroduce by letting this stretch, so no max-width cap either - a 1600px cap still left the
+   grid cramped on a 2K monitor's wide window; just let it fill whatever width .server-detail
+   actually has. */
+.mc-mods-grid {
+  display: grid;
+  width: 100%;
+  column-gap: 12px;
+}
+
+/* Name gets the lion's share (capped, not fixed, so a narrow window can still shrink it) since
+   it's the primary identifying column; Description is the other flexible one (prose that
+   should wrap within its track, not render as one unbroken line) and splits remaining space
+   with Name via its own 1fr. Source/Downloads/the Install button are all a known-bounded small
+   vocabulary - fixed-ish tracks are fine, nothing there can produce a surprise long outlier. */
+.mc-mods-grid--browse {
+  grid-template-columns: minmax(0, 260px) minmax(0, 1fr) 100px 110px auto;
+}
+
+/* No Description column here - Name alone gets the flexible 1fr share. Version is free-form
+   text from whichever source installed it (same unbounded-outlier risk as a mod's title), so
+   it also gets the mc-mod-title ellipsis treatment in ModsTab.tsx even though its own column
+   track is a fixed width here. */
+.mc-mods-grid--installed {
+  grid-template-columns: minmax(0, 1fr) 100px 150px 130px auto;
+}
+
+.mc-mods-grid-header,
+.mc-mods-grid-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.mc-mods-grid-header {
+  font-weight: 600;
+}
+
+.mc-mods-grid-empty {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+
+.mc-mod-name-cell {
+  gap: 8px;
+}
+
+/* Source column: the source's own logo instead of its plain-text name (Modrinth/CurseForge) -
+   the name's still there as alt text/a title tooltip. gap/flex-wrap matter here since the
+   Installed grid can show more than one logo side by side when a mod's alsoOn means it's
+   cross-listed on more than one source. */
+.mc-mod-source-cell {
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mc-mod-source-icon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+/* Prose, not a single value - wraps within its track rather than truncating to one line (the
+   row grows to fit, same as the old <table>'s own wrapping <td> did). */
+.mc-mod-description-cell {
+  white-space: normal;
+  align-items: flex-start;
+}
+
+/* Truncates with an ellipsis instead of forcing its column wider - applied to both the Name
+   cell's title text and (in the Installed grid) the Version text, the two free-form,
+   unbounded-length values in these grids. The full value is still available as a native
+   title-attribute tooltip on hover (set in ModsTab.tsx). min-width: 0 matters here: a flex
+   item's default min-width is its own content's natural width, which silently defeats
+   text-overflow: ellipsis by letting the item grow past its track instead of actually
+   truncating. */
+.mc-mod-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.mc-mods-grid-actions {
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.mc-mod-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.backups-select-col {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.backup-log-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.backup-log-panel h3 {
+  margin: 0;
+}
+
+.backup-log-list {
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: monospace;
+  font-size: 0.8rem;
+}
+
+.backup-log-line {
+  margin: 0 0 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.backup-log-time {
+  color: var(--muted);
+  margin-right: 6px;
+}
+
+.update-log-tab {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.update-log-tab h3 {
+  margin: 0;
+}
+
+.update-log-tab .log-output {
+  max-height: 60vh;
+}
+
+/* Previously only defined inside the web dashboard's own embedded <style> block
+   (webDashboard.ts) - PlayerBansPanel/PlayerActivityPanel already reference this class, but
+   it rendered as an unstyled browser-default table here until now. */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+
+.data-table th,
+.data-table td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.data-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* Files tab (ServerDetail/FilesTab.tsx) - desktop mirror of the web dashboard's own Files
+   tab, same class names as its embedded CSS where the two share a look (breadcrumb, diff
+   coloring, history list) plus the ones new to the Notepad++-inspired tabbed editor. */
+.files-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.files-breadcrumb {
+  font-size: 0.85rem;
+}
+
+.files-breadcrumb button {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: 0 2px;
+  font-size: 0.85rem;
+}
+
+.files-breadcrumb button:hover {
+  text-decoration: underline;
+}
+
+.data-table td.files-name-cell {
+  cursor: pointer;
+}
+
+.data-table td.files-name-cell:hover {
+  text-decoration: underline;
+}
+
+.files-open-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.files-open-tab {
+  display: flex;
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.files-browse-tab {
+  padding: 6px 12px;
+  color: var(--muted);
+}
+
+.files-open-tab.active {
+  background: var(--bg);
+  border-color: var(--accent);
+}
+
+.files-open-tab.active.files-browse-tab,
+.files-open-tab.active .files-open-tab-label {
+  color: var(--text);
+}
+
+.files-open-tab-label {
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 6px 4px 6px 12px;
+  color: var(--muted);
+}
+
+.files-open-tab-close {
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 6px 10px 6px 4px;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.files-open-tab-close:hover {
+  color: var(--danger);
+}
+
+.files-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* Fills the rest of the tab's own available height instead of a fixed pixel size - the
+     whole point of making this "bigger and responsive" per the user's own request. */
+  min-height: 0;
+  flex: 1;
+}
+
+.files-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.files-editor-header h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 400;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.files-editor-body {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  /* Tall enough to actually use the window instead of a cramped fixed-height box, but still
+     bounded - the History list below it needs to stay reachable without scrolling the whole
+     page past the editor. */
+  height: 55vh;
+}
+
+.files-editor-gutter {
+  flex-shrink: 0;
+  padding: 8px 8px 8px 0;
+  text-align: right;
+  font-family: monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  user-select: none;
+}
+
+.files-editor-readonly-badge {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.files-editor-code {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.files-editor-highlight,
+.files-editor-textarea {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 8px 10px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Notepad++-style coloring: a non-interactive <pre> sits behind the real textarea and shows
+   the colored tokens; the textarea on top stays fully functional but renders its own text
+   transparent (only the caret and selection are visible) so the colors underneath show
+   through instead of being covered by plain black-on-dark text. Both elements share the same
+   font/padding/white-space so they wrap identically and stay pixel-aligned as the user types -
+   see syncEditorScroll in FilesTab.tsx for how their scroll position stays in sync too. The
+   highlight layer is purely JS-driven (its scrollTop is only ever set programmatically, to
+   mirror the textarea's own) so it stays overflow: hidden - but the textarea itself is the one
+   the user actually scrolls with the wheel/keyboard, so it needs overflow-y: auto, not hidden
+   (hidden would silently block the user's own scroll input, not just the scrollbar). */
+.files-editor-highlight {
+  color: var(--text);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.files-editor-textarea {
+  border: none;
+  border-radius: 0;
+  resize: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.files-editor-textarea::selection {
+  background: rgba(79, 140, 255, 0.35);
+}
+
+.files-editor-textarea:focus {
+  outline: none;
+}
+
+.files-editor-textarea[readonly] {
+  cursor: default;
+}
+
+.tok-section {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tok-comment {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.tok-key {
+  color: var(--cyan);
+}
+
+.tok-punctuation {
+  color: var(--muted);
+}
+
+.tok-string {
+  color: var(--warn);
+}
+
+.tok-number {
+  color: var(--purple);
+}
+
+.tok-boolean {
+  color: var(--pink);
+}
+
+.tok-timestamp {
+  color: var(--muted);
+}
+
+.tok-error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.tok-warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.tok-info {
+  color: var(--cyan);
+}
+
+.tok-plain {
+  color: var(--text);
+}
+
+.files-ini-history-list {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0;
+}
+
+.files-ini-history-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.files-ini-history-list li span {
+  flex: 1;
+}
+
+.files-ini-diff {
+  font-family: monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.files-ini-diff .diff-added {
+  background: rgba(63, 191, 111, 0.18);
+  display: block;
+}
+
+.files-ini-diff .diff-removed {
+  background: rgba(224, 85, 91, 0.18);
+  display: block;
+}
+
+.files-ini-diff .diff-same {
+  display: block;
+  opacity: 0.7;
+}
+
+/* CreateServerWizard.tsx - the merged "+ Add server" flow (previously three separate
+   header buttons: Add server / Import existing server / Import profile file...). */
+.wizard-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Right-side drawer for secondary screens (Settings, SteamCMD, Profile Management, Map
+   Manager) - see components/SidePanel.tsx. The page behind it stays visible, dimmed, on the
+   left rather than being replaced outright. */
+.side-panel-overlay {
+  position: fixed;
+  /* Starts below the title bar (its own fixed 40px height) rather than covering it, so
+     File/Tools/Help and the window controls stay reachable while a drawer is open - e.g.
+     switching straight from Settings to Map Manager via the Tools menu without closing
+     either one first. */
+  top: 40px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 90;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.side-panel {
+  width: min(1180px, 85vw);
+  min-width: 420px;
+  height: 100%;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -20px 0 60px rgba(0, 0, 0, 0.5);
+  overflow-y: auto;
+  animation: side-panel-in 0.16s ease-out;
+}
+
+@keyframes side-panel-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 760px) {
+  .side-panel {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+.wizard-modal {
+  width: 540px;
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px 24px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.wizard-modal-wide {
+  width: 680px;
+}
+
+.wizard-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.wizard-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.wizard-header-icon {
+  font-size: 1.3rem;
+}
+
+.wizard-close {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 1rem;
+  padding: 4px 8px;
+}
+
+.wizard-close:hover {
+  color: var(--text);
+}
+
+.wizard-subtitle {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 4px 0 18px;
+}
+
+.wizard-steps {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.wizard-step-indicator {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.wizard-step-indicator:last-child {
+  flex: 0 0 auto;
+}
+
+.wizard-step-circle {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.wizard-step-circle.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.wizard-step-circle.done {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b1220;
+}
+
+.wizard-step-line {
+  flex: 1;
+  height: 2px;
+  background: var(--border);
+  margin: 0 6px;
+}
+
+.wizard-step-line.done {
+  background: var(--accent);
+}
+
+.wizard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 220px;
+}
+
+.wizard-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.wizard-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.wizard-input-row input {
+  flex: 1;
+}
+
+.wizard-valid-ok {
+  color: var(--ok);
+}
+
+.wizard-valid-bad {
+  color: var(--danger);
+}
+
+.wizard-hint-list {
+  list-style: none;
+  margin: -4px 0 6px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wizard-hint-list li::before {
+  content: '- ';
+}
+
+.wizard-hint-list li.ok {
+  color: var(--ok);
+}
+
+.wizard-hint-static {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin: -4px 0 0;
+}
+
+.wizard-option-card {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.wizard-option-card[data-selected='true'] {
+  border-color: var(--accent);
+  background: rgba(79, 140, 255, 0.08);
+}
+
+.wizard-option-card[data-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.wizard-option-card input {
+  margin-top: 3px;
+}
+
+.wizard-option-card strong {
+  display: block;
+  font-size: 0.9rem;
+}
+
+.wizard-option-card p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.wizard-option-card select {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.wizard-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.wizard-hint-box {
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 0.8rem;
+}
+
+.wizard-hint-box p {
+  margin: 3px 0;
+}
+
+.wizard-hint-box p::before {
+  content: '';
+}
+
+.wizard-hint-box-review {
+  background: rgba(79, 140, 255, 0.08);
+  border: 1px solid var(--accent);
+  color: var(--text);
+}
+
+.wizard-hint-box-ok {
+  background: rgba(63, 191, 111, 0.12);
+  border: 1px solid var(--ok);
+  color: var(--ok);
+}
+
+.wizard-hint-box-error {
+  background: rgba(224, 85, 91, 0.12);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.map-manager-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.map-manager-section-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.map-manager-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--border);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.map-manager-lock {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.map-manager-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.map-manager-table th {
+  text-align: left;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.map-manager-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.map-manager-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.map-manager-row-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.map-manager-empty {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 32px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 1.6rem;
+  text-align: center;
+}
+
+.map-manager-empty span {
+  font-size: 0.85rem;
+}
+
+.map-manager-empty:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.ini-templates-apply-all-btn {
+  margin-left: auto;
+}
+
+.ini-template-textarea {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  white-space: pre;
+}
+
+.ini-template-field-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ini-template-import-btn {
+  font-size: 0.78rem;
+  padding: 2px 8px;
+}
+
+.ini-templates-group-row td {
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 6px 10px;
+}
+
+.ini-templates-apply-summary {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.ini-templates-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.event-scheduler-view .server-detail-header {
+  position: relative;
+}
+
+.event-scheduler-new-btn {
+  margin-left: auto;
+}
+
+.event-badge {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.event-scheduler-form-section {
+  margin: 14px 0 2px;
+  font-size: 0.9rem;
+}
+
+.event-scheduler-form-section:first-child {
+  margin-top: 0;
+}
+
+.event-target-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  width: fit-content;
+}
+
+.event-target-toggle button {
+  border: none;
+  border-radius: 0;
+}
+
+.event-target-toggle button.active {
+  background: var(--accent);
+  color: #0b1220;
+}
+
+.event-scheduler-server-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.manage-groups-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+  margin-bottom: 14px;
+}
+
+.manage-groups-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.manage-groups-name {
+  font-weight: 600;
+  flex: 1;
+}
+
+.manage-groups-count {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.manage-groups-rename-form {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+}
+
+.manage-groups-rename-form input {
+  flex: 1;
+}
+
+.manage-groups-new-form {
+  display: flex;
+  gap: 8px;
+}
+
+.manage-groups-new-form input {
+  flex: 1;
+}
+
+.wizard-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+}
+
+.wizard-footer > div {
+  display: flex;
+  gap: 8px;
+}
+
+.wizard-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b1220;
+  font-weight: 600;
+}
+
+.wizard-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.install-progress-panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.install-progress-panel h3 {
+  margin: 0;
+}
+
+.install-progress-stage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.install-progress-stage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.install-progress-percent {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.install-progress-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.install-progress-bar-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: wizard-spin 0.8s linear infinite;
+}
+
+@keyframes wizard-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Keeps a mutually-exclusive top-level view (Dashboard/MinecraftDashboard's own shell)
+   mounted in the background instead of being torn down and rebuilt by React every time
+   ServerDetail/GroupConsoleView takes over - see App.tsx's own comment where this is used.
+   Plain `display: none` rather than unmounting: the hidden tree keeps its state/effects
+   alive, so navigating back shows it exactly as it was instead of flashing through a fresh
+   mount's defaults while everything re-fetches. */
+.app-view-hidden {
+  display: none;
+}

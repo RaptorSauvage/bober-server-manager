@@ -152,6 +152,11 @@ fn profiles_save(profile: Value, sidecar: tauri::State<SidecarHandle>) -> Result
 }
 
 #[tauri::command]
+fn profiles_import_from_file(file_path: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("profiles.importFromFile", Some(serde_json::json!({ "filePath": file_path })))
+}
+
+#[tauri::command]
 fn profiles_copy(
     profile_id: String,
     dest_install_dir: String,
@@ -230,6 +235,17 @@ fn window_focus(app_handle: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn dialog_select_file() -> Option<String> {
     FileDialog::new()
+        .pick_file()
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+/// Backs Dashboard.tsx's "+ Add Profile" wizard's "Import from file..." button
+/// (window.api.dialog.selectProfileFile) - same architectural class as dialog_select_file, a
+/// real .json filter matching the real dialog.ts's own showOpenDialog filters.
+#[tauri::command]
+fn dialog_select_profile_file() -> Option<String> {
+    FileDialog::new()
+        .add_filter("JSON", &["json"])
         .pick_file()
         .map(|p| p.to_string_lossy().to_string())
 }
@@ -1224,6 +1240,90 @@ fn legacy_import_run(path: String, sidecar: tauri::State<SidecarHandle>) -> Resu
     sidecar.call("legacyImport.run", Some(serde_json::json!({ "path": path })))
 }
 
+/// Backs App.tsx's own direct window.api.server.isInstalled call - the real top-level shell
+/// computes installedById for every profile itself, not left to a per-page wrapper.
+#[tauri::command]
+fn server_is_installed(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("server.isInstalled", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+/// Backs App.tsx's own window.api.appStartup.isComplete - see sidecar.ts's own comment on why
+/// this sidecar marks its startup complete right after its own init rather than replicating
+/// every real step of main/index.ts's own boot chain.
+#[tauri::command]
+fn app_startup_is_complete(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("appStartup.isComplete", None)
+}
+
+/// Backs the real TitleBar.tsx's own minimize/maximize/close buttons - found only once the
+/// real App.tsx (which renders TitleBar.tsx, unlike any single-page entry in this PoC) was
+/// actually mounted and threw `window.api.windowControls.isMaximized is not a function`. Same
+/// sidecar-free native-window-handle class as window_focus above, not business logic.
+#[tauri::command]
+fn window_minimize(app_handle: tauri::AppHandle) -> Result<(), String> {
+    app_handle
+        .get_webview_window("main")
+        .ok_or_else(|| "no main window".to_string())?
+        .minimize()
+        .map_err(|e| e.to_string())
+}
+
+/// Toggles maximize/unmaximize and pushes the real app's own `window-maximized-changed` event
+/// right after - the real Electron app gets this from OS-level 'maximize'/'unmaximize' window
+/// hooks, but with this window frameless (`decorations: false`, matching the real app's own
+/// custom-title-bar design) the custom title bar's button is the only way this state ever
+/// changes, so firing the push from here covers every real case, not just a shortcut.
+#[tauri::command]
+fn window_toggle_maximize(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let window = app_handle.get_webview_window("main").ok_or_else(|| "no main window".to_string())?;
+    let now_maximized = if window.is_maximized().map_err(|e| e.to_string())? {
+        window.unmaximize().map_err(|e| e.to_string())?;
+        false
+    } else {
+        window.maximize().map_err(|e| e.to_string())?;
+        true
+    };
+    app_handle.emit("window-maximized-changed", now_maximized).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn window_close(app_handle: tauri::AppHandle) -> Result<(), String> {
+    app_handle
+        .get_webview_window("main")
+        .ok_or_else(|| "no main window".to_string())?
+        .close()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn window_is_maximized(app_handle: tauri::AppHandle) -> Result<bool, String> {
+    app_handle
+        .get_webview_window("main")
+        .ok_or_else(|| "no main window".to_string())?
+        .is_maximized()
+        .map_err(|e| e.to_string())
+}
+
+/// Backs TitleBar.tsx's File > Quit - the real ipc/system.ts's own app.quit() equivalent.
+#[tauri::command]
+fn app_quit(app_handle: tauri::AppHandle) {
+    app_handle.exit(0);
+}
+
+/// Backs TitleBar.tsx's File > Toggle DevTools - this PoC already runs with devtools enabled
+/// (Cargo.toml's `features = ["devtools"]`, used throughout every earlier round's own testing),
+/// so this is a real, working toggle, not a stub.
+#[tauri::command]
+fn app_open_dev_tools(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let window = app_handle.get_webview_window("main").ok_or_else(|| "no main window".to_string())?;
+    if window.is_devtools_open() {
+        window.close_devtools();
+    } else {
+        window.open_devtools();
+    }
+    Ok(())
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -1619,7 +1719,17 @@ fn main() {
             minecraft_profiles_import,
             legacy_import_detect,
             legacy_import_preview,
-            legacy_import_run
+            legacy_import_run,
+            server_is_installed,
+            app_startup_is_complete,
+            window_minimize,
+            window_toggle_maximize,
+            window_close,
+            window_is_maximized,
+            app_quit,
+            app_open_dev_tools,
+            dialog_select_profile_file,
+            profiles_import_from_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

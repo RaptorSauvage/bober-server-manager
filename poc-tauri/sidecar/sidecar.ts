@@ -51,9 +51,12 @@ import {
   listPlayerActivity,
   listPlayerSessions,
   listPlayerBans,
-  removePlayerBanProfile
+  removePlayerBanProfile,
+  getProfile
 } from '../../src/main/store'
 import { sendRconCommand, parsePlayerListWithIds } from '../../src/main/lib/rcon'
+import { isValidArkInstall } from '../../src/main/lib/detect'
+import { isStartupComplete, markStartupComplete, startupStatusEvents } from '../../src/main/lib/startupStatus'
 import { logManagerEvent, newTaskId, managerLogEvents, readManagerLog } from '../../src/main/lib/managerLog'
 import {
   watchLogFile,
@@ -116,7 +119,7 @@ import { listCustomMaps, addCustomMap, updateCustomMap, deleteCustomMap } from '
 import { syncAseModsToIni, reconcileAseModsFromIni } from '../../src/main/lib/gameConfigWrite'
 import { parseImportedMods } from '../../src/main/lib/modsExport'
 import { searchArkMods, getArkModsInfo } from '../../src/main/lib/arkMods'
-import { serializeProfile } from '../../src/main/lib/profileExport'
+import { serializeProfile, parseImportedProfile } from '../../src/main/lib/profileExport'
 import {
   listFileBrowserEntries,
   resolveFileBrowserPath,
@@ -232,6 +235,22 @@ const methods: Record<string, (params: unknown) => unknown> = {
     const profiles = saveProfile(profile)
     applyBackupSchedule(profile)
     return profiles
+  },
+  // Real, unmodified parseImportedProfile() - backs Dashboard.tsx's own "+ Add Profile" wizard
+  // import-from-file path, found only once the real App.tsx (which actually renders that
+  // wizard, unlike dashboard-entry.tsx's own earlier round which left it explicitly out of
+  // scope) was mounted and this call site was hit for real the first time in this PoC.
+  'profiles.importFromFile': (params) => {
+    const { filePath } = params as { filePath: string }
+    const existing = listProfiles()
+    const profile = parseImportedProfile(fs.readFileSync(filePath, 'utf-8'), existing.map((p) => p.name))
+    const profiles = saveProfile(profile)
+    applyBackupSchedule(profile)
+    applyScheduledRestart(profile)
+    applyScheduledDinoWipe(profile)
+    applyScheduledRconCommands(profile)
+    applyScheduledMaintenance(profile)
+    return { profile, profiles }
   },
   // Real, unmodified copyProfile()/moveProfile() from lib/profileCopyMove.ts - a write path
   // with a native dialog on the renderer side (ProfileManagementView.tsx's "Browse..." button,
@@ -1456,7 +1475,24 @@ const methods: Record<string, (params: unknown) => unknown> = {
   // asserting one exact path.
   'legacyImport.detect': () => detectLegacyCandidates(),
   'legacyImport.preview': (params) => previewLegacyImport((params as { path: string }).path),
-  'legacyImport.run': (params) => runLegacyImport((params as { path: string }).path)
+  'legacyImport.run': (params) => runLegacyImport((params as { path: string }).path),
+  // Real, unmodified isValidArkInstall() - backs App.tsx's own direct window.api.server
+  // .isInstalled call (not a per-page wrapper's own concern, App.tsx uses it itself to compute
+  // installedById before ever rendering Dashboard.tsx), the same real check the ARK ipc
+  // handler's own serverIsInstalled uses.
+  'server.isInstalled': (params) => {
+    const { profileId } = params as { profileId: string }
+    const profile = getProfile(profileId)
+    if (!profile) throw new Error(`Unknown profile: ${profileId}`)
+    return isValidArkInstall(profile.installDir, profile.game)
+  },
+  // Real, unmodified isStartupComplete() - the other call App.tsx makes directly. This sidecar
+  // has no multi-step boot chain to match main/index.ts's own real sequence (re-attach
+  // processes, start the web dashboard, arm the scheduler, auto-start servers...) - it marks
+  // its own startup complete right after its own init finishes (see the bottom of this file),
+  // an honest PoC-appropriate stand-in for "the real app has finished booting", not a replica
+  // of every real step that leads there.
+  'appStartup.isComplete': () => isStartupComplete()
 }
 
 let stopConsoleWatch: (() => void) | null = null
@@ -1497,6 +1533,10 @@ serverEvents.on('status', (status) => send({ event: 'server-status', data: statu
 // needed here, unlike lib/schedule.ts's own serverEvents subscription.
 backupEvents.on('created', (profileId: string) => send({ event: 'backup-created', data: profileId }))
 backupEvents.on('log', (profileId: string, entry) => send({ event: 'backup-log-entry', data: { profileId, entry } }))
+// App.tsx's own window.api.appStartup.onComplete subscription - real startupStatusEvents,
+// fires once (markStartupComplete() itself is idempotent/no-op past the first call, same real
+// guard the real main/index.ts relies on).
+startupStatusEvents.once('complete', () => send({ event: 'app-startup-complete', data: true }))
 // A sixth: lib/steamcmd.ts's own `steamcmdUpdateEvents` - backs UpdateLogTab.tsx's
 // window.api.steamcmd.onUpdateLogChanged, the same "module-level EventEmitter.on
 // subscription, no explicit arm call needed" shape as every push source above except
@@ -1567,6 +1607,11 @@ rl.on('line', async (line) => {
     send({ id: request.id, error: (err as Error).message })
   }
 })
+
+// Real markStartupComplete() - see this file's own 'appStartup.isComplete' comment for why
+// this fires right after this sidecar's own init finishes rather than replicating every real
+// step of main/index.ts's own boot chain.
+markStartupComplete()
 
 // Tells the Rust side the sidecar is up and its stdio pipes are ready to receive requests -
 // spawning a child process and it actually being ready to read stdin aren't the same instant.

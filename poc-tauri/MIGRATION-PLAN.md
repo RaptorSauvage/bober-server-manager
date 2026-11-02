@@ -3,10 +3,11 @@
 Ce document part du principe que le PoC (`poc-tauri/`, voir `README.md` pour le détail de
 chaque page portée) a répondu à la question qu'il posait : oui, l'architecture
 Rust/Tauri + sidecar Node peut faire tourner tout le code métier réel de l'appli, sans
-Electron. Ce que le PoC n'a jamais été, c'est l'appli elle-même. Ce document liste, honnêtement,
-ce qu'il reste à faire pour passer de "36 pages prouvées une par une dans un harnais de test"
-à "une seule appli livrable qui remplace Electron en production", avec Windows comme cible
-prioritaire puisque c'est la plateforme de la majorité des utilisateurs de ce manager.
+Electron - et depuis, le vrai `App.tsx` (le shell applicatif complet, pas une page de test de
+plus) tourne lui aussi, avec navigation réelle confirmée. Ce document liste, honnêtement, ce
+qu'il reste à faire pour passer de là à "une appli livrable qui remplace Electron en
+production", avec Windows comme cible prioritaire puisque c'est la plateforme de la majorité
+des utilisateurs de ce manager.
 
 ## Ce qui est déjà acquis (ne pas refaire)
 
@@ -35,26 +36,64 @@ prioritaire puisque c'est la plateforme de la majorité des utilisateurs de ce m
   renommé `ark-server-manager` → `bober-server-manager` sans casser les installations
   existantes (`src/main/legacyUserDataCompat.ts` repointe explicitement vers l'ancien dossier -
   confirmé par un build complet et les 1358 tests, tous verts, après le rename).
+- **Le vrai `App.tsx` tourne, pas une 37e page de démo** (voir section 1 ci-dessous) - le vrai
+  shell applicatif, avec le vrai `app.css`, un unique pont `window.api` complet
+  (`frontend/lib/windowApi.ts`), navigation sidebar/onglets réelle confirmée via l'app compilée.
 
 ## Ce qui n'existe pas encore et qui est le vrai travail
 
-### 1. L'appli elle-même, pas 37 pages de test séparées (le plus gros chantier)
+### 1. L'appli elle-même, pas 37 pages de test séparées
 
-Le PoC a une page HTML + un point d'entrée `.tsx` par composant réel testé, chacun avec sa
-propre union partielle de `window.api` recopiée à la main. C'est volontaire pour un PoC
-(isoler chaque page pour la tester une par une) mais ce n'est pas une architecture d'appli :
-il n'y a ni vrai router, ni `App.tsx` (609 lignes dans le vrai code, avec sa navigation par
-onglets groupés, sa gestion de rôles, ses Context providers), ni état partagé entre pages.
+**Fait, pas juste planifié - voir README, "The real App.tsx shell, not one more per-page
+wrapper".** Le vrai, unmodifié `App.tsx` (609 lignes) tourne maintenant directement dans ce
+PoC (`poc-tauri/frontend/app-entry.tsx` + `app.html`), avec le vrai `app.css`
+(`styles.css`, copié tel quel), pas une page "unstyled but functional" de plus. Il s'est avéré
+n'avoir besoin d'aucun router ni Context provider : juste un gros composant à état local
+(`useState`) qui bascule entre les pages déjà prouvées une par une - confirmé en lisant le vrai
+`src/renderer/src/main.tsx` que ce PoC imite trait pour trait
+(`ReactDOM.createRoot(...).render(<App />)` dans `React.StrictMode`, rien d'autre).
 
-Travail réel : porter `App.tsx` lui-même (son vrai routing/layout, pas une des 37 pages qu'il
-compose), avec un **unique** pont `window.api` complet remplaçant le vrai `src/preload/index.ts`
-(377 lignes, `contextBridge.exposeInMainWorld`) par son équivalent Tauri
-(`invoke`/`listen`) - pas une union ad hoc par page comme le PoC, mais la vraie surface
-complète une bonne fois pour toutes. Les ~162 commandes Tauri déjà écrites dans `main.rs`
-couvrent déjà la bonne partie de cette surface ; il s'agit surtout de les assembler
-correctement dans un seul fichier de pont, plus les éventuelles commandes jamais exercées par
-le PoC (certains des 39 modules `src/main/ipc/*.ts` n'ont peut-être pas tous leurs endpoints
-couverts un par un - à auditer module par module contre `main.rs`).
+Le **vrai fix** que cette section appelait de ses vœux existe maintenant :
+`poc-tauri/frontend/lib/windowApi.ts`, un **unique** pont `window.api` complet, construit en
+fusionnant mécaniquement les ~36 unions partielles par page déjà écrites dans ce PoC - pas une
+réécriture depuis zéro. `installWindowApi()` s'appelle une fois, au montage, et c'est tout.
+
+En montant la vraie appli pour de vrai (pas une page isolée), plusieurs vrais trous dans la
+surface `window.api` sont apparus - aucun n'avait jamais été exercé par aucune des 36 pages
+individuelles, puisque c'est `App.tsx` lui-même (ou des composants qu'il rend inconditionnellement
+comme `TitleBar.tsx`, jamais monté seul avant) qui les appelle :
+- `server.isInstalled`, `appStartup.isComplete`/`.onComplete` - `App.tsx` les appelle
+  directement. Le sidecar n'a pas de vraie séquence de boot multi-étapes à répliquer comme le
+  vrai `main/index.ts` (ré-attacher les process, démarrer le web dashboard, armer le
+  scheduler...) - il marque son propre démarrage terminé juste après sa propre init, un
+  stand-in honnête plutôt qu'une réplique de chaque étape réelle.
+- `windowControls.{minimize,toggleMaximize,close,isMaximized,onMaximizedChange}`,
+  `system.{quit,openDevTools}` - le vrai `TitleBar.tsx` (jamais monté avant, aucune des 36
+  pages ne rend sa propre barre de titre) attend ces commandes. Même classe que `window_focus`
+  (aucune implication du sidecar, juste l'API fenêtre de Tauri) - cinq nouvelles commandes Rust
+  sans sidecar, plus la première émission Rust→webview *directement* depuis `main.rs`
+  (`window-maximized-changed`), pas relayée depuis le sidecar comme tous les autres push events
+  jusqu'ici.
+- `dialog.selectProfileFile`, `profiles.importFromFile` - le bouton "Import from file..." du
+  vrai assistant "+ Add Profile" de `Dashboard.tsx`, explicitement laissé hors-scope lors du
+  round `dashboard-entry.tsx` d'origine ("needs the native folder/file picker"). Réutilise le
+  vrai `parseImportedProfile()` (`lib/profileExport.ts`), jamais appelé avant dans ce PoC.
+
+Confirmé par la vraie app compilée, pas juste par la compilation : navigation sidebar
+ARK/Minecraft en direct (vrai `MinecraftDashboard.tsx` affiché, vraies stats réseau live qui
+changent), clic sur le menu "..." d'une carte serveur → les 8 vrais onglets listés
+(Analytics/Settings/Mods/Map Management/Backups/Update Log/Server Management/Files), navigation
+réelle dans `ServerDetail` (vraies données du profil affichées), changement d'onglet interne
+sans rechargement de page, retour en arrière vers le Dashboard - tout cela est la vraie
+composition `App.tsx` d'état interne, pas un rechargement de page comme le ferait un lien
+`<a>`. Seul vrai trou restant : l'état minimize/maximize de la fenêtre ne peut pas être
+confirmé visuellement dans ce sandbox Xvfb headless (aucun gestionnaire de fenêtres réel pour
+faire suivre l'état) - même catégorie que les sélecteurs natifs, l'appel RPC lui-même
+fonctionne sans erreur.
+
+Ce qui reste : auditer les 39 modules `src/main/ipc/*.ts` un par un contre `main.rs` pour
+trouver d'éventuels endpoints jamais exercés même par cette surface désormais complète
+(aucun trou connu à ce jour, mais pas formellement vérifié module par module).
 
 ### 2. Migration des données de l'ancien manager Electron
 
@@ -191,20 +230,22 @@ promettre un temps de démarrage à l'utilisateur final.
 
 ## Phasage recommandé
 
-1. **App shell + pont `window.api` unifié** (section 1) - le vrai bloqueur structurel, tout le
-   reste en dépend pour devenir une appli plutôt qu'une collection de démos.
+1. ~~App shell + pont `window.api` unifié~~ **(section 1) - fait.** Le vrai `App.tsx` tourne,
+   navigation confirmée via l'app compilée.
 2. **Finir la migration de données** (section 2 - profils, bans, whitelist, watchlist et tokens
    sont déjà importés) - reste l'historique d'événements de mods et les clés API restantes, plus
    confirmer sur une vraie machine Windows quel nom de dossier (`name` vs `productName`, réglé
    pour tout build futur par `legacyUserDataCompat.ts` mais pas vérifié sur une install déjà
    existante) l'appli Electron réelle utilise effectivement.
 3. **Audit module par module** des 39 fichiers `src/main/ipc/*.ts` contre les commandes
-   `main.rs` existantes - combler les trous avant de considérer la surface "complète".
+   `main.rs` existantes - combler les trous avant de considérer la surface "complète" (aucun
+   trou connu à ce jour, mais pas formellement vérifié module par module).
 4. **QA manuelle sur Windows** : vrais dialogues natifs, chaque bouton de confirmation, vrai
-   serveur ARK/Minecraft si possible.
+   serveur ARK/Minecraft si possible, et l'état minimize/maximize de la fenêtre (non vérifiable
+   dans ce sandbox Xvfb headless, qui n'a pas de vrai gestionnaire de fenêtres).
 5. **Auto-update** (`tauri-plugin-updater`) - nécessaire avant toute diffusion au-delà d'un
    cercle de testeurs, puisque sans lui il n'y a aucune façon de pousser le prochain correctif.
-6. **Pipeline CI multi-OS**, en parallèle de 3-5 une fois l'App shell stable.
+6. **Pipeline CI multi-OS**, en parallèle de 2-4 maintenant que l'App shell est stable.
 7. **Signature de code Windows** - dernière étape avant diffusion publique, une fois le reste
    stabilisé (signer un binaire qui va encore beaucoup bouger n'apporte rien).
 

@@ -2554,10 +2554,100 @@ object always initializes it first, a guarantee a raw imported JSON file doesn't
 in the importer (defaulting the three fields `stripWrappingQuotes()` touches before writing),
 not in any real app file. Only profiles/Minecraft profiles plus a best-effort `customMaps.json`
 copy are covered so far - see `MIGRATION-PLAN.md`'s own data-migration section for what's left
-(bans, whitelist, watchlist, access tokens, and confirming which of the two candidate folder
-names a real installed copy actually uses) - 166 Tauri commands total now (counted directly
-from `main.rs`'s own `generate_handler!` list, not carried forward by arithmetic from the
-thirty-sixth page's own count above, which this correction doesn't revisit).
+(bans, whitelist, watchlist, and access tokens were added in a later round - see "Extending the
+legacy import" below) - 176 Tauri commands total now (counted directly from `main.rs`'s own
+`generate_handler!` list, not carried forward by arithmetic from the thirty-sixth page's own
+count above, which this correction doesn't revisit).
+
+### Extending the legacy import to bans, whitelist, watchlist, and access tokens
+
+The data-migration tool above only imported ARK/Minecraft profiles at first. Extended it to
+`playerBans`/`playerWhitelist` (looped once per legacy `profileId` through the real
+`recordPlayerBan()`/`recordWhitelistedPlayer()`, since those are keyed by player id with a
+`profileIds` array rather than a flat list - the real functions' own upsert-merge logic handles
+this correctly when called once per profile, while this importer's own "never touch an id
+already present" guarantee stays intact), `watchedPlayers` (flat, via the real
+`addWatchedPlayer()` directly), and `webDashboardAccessTokens` (importing the real `secretHash`
+as-is, not regenerating it, so an already-distributed token keeps authenticating against the
+new app with nothing to reconfigure). `legacyImport.detect`/`.preview` now report counts for
+all six data kinds, and `index.html`'s own UI text reflects them. Confirmed standalone and
+through the real compiled app: all six kinds import correctly on a first run and are correctly
+skipped (not duplicated) on a second run against the same fixture.
+
+### The real App.tsx shell, not one more per-page wrapper
+
+Every earlier round in this PoC mounted exactly one real page inside its own small wrapper -
+each with its own hand-written partial `window.api` union, correct for that one page but never
+meant to be the app's actual bridge. This round mounts the real, completely unmodified
+`src/renderer/src/App.tsx` (609 lines) itself - the actual top-level shell every one of those
+pages normally lives inside - via a new `poc-tauri/frontend/app-entry.tsx` + `app.html`.
+
+**No router or Context providers needed, it turns out.** Confirmed by reading the real
+`src/renderer/src/main.tsx` this entry mirrors exactly: a plain
+`ReactDOM.createRoot(...).render(<App />)` inside `React.StrictMode`, nothing else. `App.tsx`
+is one large component that owns its own page-switching state via plain `useState` and calls
+`window.api` directly for what it needs itself (profile lists, map definitions, per-profile
+install/version checks, startup-complete gating), rendering whichever already-proven real page
+the user has navigated to.
+
+**The real fix this PoC's own `MIGRATION-PLAN.md` calls for, built for real:**
+`poc-tauri/frontend/lib/windowApi.ts` - one complete `window.api` bridge, mechanically merged
+from every one of the ~36 existing per-page unions (not re-derived from scratch), that
+`installWindowApi()` installs once at mount. Also the first page in this PoC to load the real
+`app.css` (`styles.css`, copied byte-for-byte as `app-styles.css`) instead of staying
+deliberately unstyled - this round proves the real layout renders correctly, not just the logic
+underneath it.
+
+**Real gaps found only once the real shell was actually mounted**, never exercised by any
+single-page entry before because they're called by `App.tsx` itself or by components it renders
+unconditionally that no earlier round ever mounted standalone (`TitleBar.tsx` in particular -
+no per-page wrapper renders its own title bar):
+- `window.api.server.isInstalled` / `window.api.appStartup.isComplete`/`.onComplete` - called
+  directly by `App.tsx`. This sidecar has no real multi-step boot chain to replicate (re-attach
+  processes, start the web dashboard, arm the scheduler, auto-start servers, ...) the way the
+  real `main/index.ts` does, so it marks its own startup complete right after its own init
+  finishes - an honest stand-in, not a replica of every real step. `isValidArkInstall()`
+  (`lib/detect.ts`) backs `isInstalled`, real and unmodified.
+- `window.api.windowControls.{minimize,toggleMaximize,close,isMaximized,onMaximizedChange}`,
+  `window.api.system.{quit,openDevTools}` - the real `TitleBar.tsx`'s own minimize/maximize/
+  close buttons and File menu. Same sidecar-free native-window-handle class as `window_focus`
+  (five new Rust commands, no sidecar involvement) - and `window_toggle_maximize` is the first
+  command in this entire PoC to push an event (`window-maximized-changed`) straight from Rust
+  to the webview, not relayed from the sidecar like every other push event so far, since this
+  is pure window state the sidecar has no reason to know about. With the window now frameless
+  (`decorations: false`, matching the real app's own custom-title-bar design - temporarily set
+  during this round's testing, reverted after since the PoC's shared `tauri.conf.json` window
+  config also needs to serve every un-chromed demo page), the custom title bar's button is the
+  only way this state ever changes, so firing the push from there covers every real case for
+  this architecture.
+- `window.api.dialog.selectProfileFile` / `window.api.profiles.importFromFile` - the real
+  "+ Add Profile" wizard's "Import from file..." button, explicitly left out of scope by the
+  original `dashboard-entry.tsx` round ("needs the native folder/file picker"). Backed by the
+  real, unmodified `parseImportedProfile()` (`lib/profileExport.ts`), never called anywhere
+  else in this PoC until now.
+- `window.api.systemStats.get` - `App.tsx` itself calls this exact channel name, a separate IPC
+  channel (`IPC.systemStatsGet`) from `getStaticInfo()`'s own `IPC.systemStatsGetStaticInfo` -
+  but the real main-process handler for both is the identical `getSystemStaticInfo()` (see
+  `src/main/ipc/systemStats.ts`), a naming inconsistency already present in the real app, not
+  introduced here. Reuses the same Tauri command rather than adding a redundant one.
+
+**Confirmed through the real compiled app, not just a clean build:** real-styled title bar
+("File"/"Tools"/"Help", version badge, bell/notifications icon, minimize/maximize/close), real
+sidebar (ARK/Minecraft game-mode icons plus cluster/players/settings icons below), real
+Dashboard with live CPU/Memory/Network stat tiles and real seeded server cards grouped by their
+real group name. Clicking the Minecraft sidebar icon switched the whole app to the real
+`MinecraftDashboard.tsx` in place (real empty state, real live network numbers continuing to
+update) - confirmed real in-app `useState`-driven navigation, not a page reload. Clicking a
+server card's "..." menu showed the real eight-tab list (Analytics/Settings/Mods/Map
+Management/Backups/Update Log/Server Management/Files); clicking "Settings" navigated into the
+real `ServerDetail/SettingsTab.tsx` with the real seeded profile's real data displayed
+(install dir, ports, map, max players); clicking "Mods" in the grouped sidebar switched tabs in
+place with no reload; "Back" returned to the real Dashboard, live stats still updating. The
+`windowControls.toggleMaximize()`/`isMaximized()` RPC round trip itself completed with no error
+either way, but this headless Xvfb sandbox has no real window manager to actually track
+maximize/unmaximize geometry against, so the visible before/after state couldn't be confirmed
+here - same already-documented category of gap as the native file/folder pickers, not a new
+kind of limitation.
 
 ## Findings from actually running this, not from reading docs
 

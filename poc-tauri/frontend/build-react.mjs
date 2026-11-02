@@ -46,7 +46,8 @@ const pages = [
   'minecraft-server-settings',
   'minecraft-mods',
   'minecraft-server-detail',
-  'minecraft-dashboard'
+  'minecraft-dashboard',
+  'app'
 ]
 
 for (const page of pages) {
