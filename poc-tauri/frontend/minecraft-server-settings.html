@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Minecraft Server Settings - real ServerSettingsTab.tsx through Tauri</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: #14161a;
+        color: #e6e8ec;
+      }
+      .page {
+        padding: 24px;
+        max-width: 1100px;
+      }
+      h1 {
+        font-size: 1.3rem;
+      }
+      h3 {
+        margin: 0 0 8px;
+      }
+      p {
+        color: #c9cdd6;
+        font-size: 0.9rem;
+      }
+      button {
+        background: #2c303a;
+        color: #e6e8ec;
+        border: 1px solid #3a3f4b;
+        border-radius: 4px;
+        padding: 4px 10px;
+        cursor: pointer;
+        font: inherit;
+      }
+      button:hover {
+        background: #3a3f4b;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      input,
+      select {
+        background: #0f1115;
+        color: #e6e8ec;
+        border: 1px solid #2c303a;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font: inherit;
+      }
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-bottom: 10px;
+        font-size: 0.85rem;
+        color: #c9cdd6;
+      }
+      label.checkbox {
+        flex-direction: row;
+        align-items: center;
+        gap: 6px;
+      }
+      .cluster-section {
+        background: #1a1d24;
+        border: 1px solid #2c303a;
+        border-radius: 10px;
+        padding: 14px 16px;
+        margin-bottom: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .empty-state {
+        color: #9aa0ab;
+      }
+      .error-message {
+        color: #ff8080;
+      }
+      .form-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 12px 0;
+      }
+      .settings-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+      }
+      .settings-grid label {
+        margin-bottom: 0;
+      }
+      .server-settings-tab {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 16px;
+      }
+      .server-settings-tab > .cluster-section {
+        flex: 1 1 380px;
+        max-width: 480px;
+      }
+      .server-settings-tab > p,
+      .server-settings-tab > .form-actions,
+      .server-settings-tab > .error-message {
+        flex: 1 1 100%;
+        max-width: none;
+        margin: 0;
+      }
+      a {
+        color: #8ab4ff;
+      }
+    </style>
+  </head>
+  <body>
+    <p style="padding: 12px 24px 0"><a href="index.html" style="color: #8ab4ff">&larr; back to the main PoC page</a></p>
+    <div class="page">
+      <h1>Minecraft Server Settings</h1>
+      <div id="root"></div>
+    </div>
+    <script type="module" src="minecraft-server-settings.js"></script>
+  </body>
+</html>

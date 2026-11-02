@@ -1100,6 +1100,25 @@ fn minecraft_backup_open_folder(profile_id: String, sidecar: tauri::State<Sideca
     sidecar.call("minecraft.backup.openFolder", Some(serde_json::json!({ "profileId": profile_id })))
 }
 
+/// Backs MinecraftServerDetail/ServerSettingsTab.tsx - a thirty-third real page.
+#[tauri::command]
+fn minecraft_open_server_folder(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.openServerFolder", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+#[tauri::command]
+fn minecraft_properties_get(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.properties.get", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+#[tauri::command]
+fn minecraft_properties_save(profile_id: String, updates: Value, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call(
+        "minecraft.properties.save",
+        Some(serde_json::json!({ "profileId": profile_id, "updates": updates }))
+    )
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -1478,7 +1497,10 @@ fn main() {
             minecraft_backup_list,
             minecraft_backup_delete,
             minecraft_backup_restore,
-            minecraft_backup_open_folder
+            minecraft_backup_open_folder,
+            minecraft_open_server_folder,
+            minecraft_properties_get,
+            minecraft_properties_save
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

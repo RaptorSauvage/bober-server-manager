@@ -42,7 +42,8 @@ const pages = [
   'minecraft-console',
   'minecraft-start-settings',
   'minecraft-backup-log',
-  'minecraft-backups'
+  'minecraft-backups',
+  'minecraft-server-settings'
 ]
 
 for (const page of pages) {

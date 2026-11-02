@@ -175,8 +175,10 @@ import {
   listMinecraftBackups,
   deleteMinecraftBackup,
   restoreMinecraftBackup,
-  openMinecraftBackupFolder
+  openMinecraftBackupFolder,
+  openMinecraftServerRootFolder
 } from '../../src/main/lib/minecraftBackup'
+import { readServerProperties, upsertServerPropertiesKeys } from '../../src/main/lib/minecraftProperties'
 import { app, shell } from 'electron'
 import { send, resolveRustResponse } from './rpcToRust'
 import type { GameId } from '../../shared/games'
@@ -1323,6 +1325,28 @@ const methods: Record<string, (params: unknown) => unknown> = {
     if (!profile) throw new Error(`Unknown Minecraft profile: ${(params as { profileId: string }).profileId}`)
     await openMinecraftBackupFolder(profile)
     return { ok: true }
+  },
+  // Real, unmodified openMinecraftServerRootFolder() (lib/minecraftBackup.ts) and
+  // readServerProperties()/upsertServerPropertiesKeys() (lib/minecraftProperties.ts) - backs
+  // MinecraftServerDetail/ServerSettingsTab.tsx, a thirty-third real page. Mirrors
+  // ipc/minecraft.ts's own requireProfile() shape exactly.
+  'minecraft.openServerFolder': async (params) => {
+    const profile = getMinecraftProfile((params as { profileId: string }).profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${(params as { profileId: string }).profileId}`)
+    await openMinecraftServerRootFolder(profile)
+    return { ok: true }
+  },
+  'minecraft.properties.get': (params) => {
+    const profile = getMinecraftProfile((params as { profileId: string }).profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${(params as { profileId: string }).profileId}`)
+    return readServerProperties(profile.installDir)
+  },
+  'minecraft.properties.save': (params) => {
+    const { profileId, updates } = params as { profileId: string; updates: Record<string, string> }
+    const profile = getMinecraftProfile(profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${profileId}`)
+    upsertServerPropertiesKeys(profile.installDir, updates)
+    return readServerProperties(profile.installDir)
   }
 }
 
