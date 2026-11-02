@@ -1,5 +1,8 @@
 # Tauri shell PoC
 
+This PoC's originally-scoped exploration is complete - see `MIGRATION-PLAN.md` for what's
+actually left to turn this into a shipped, Electron-replacing app (Windows-first).
+
 Answers one question before committing to a real Electron → Tauri migration: can a Rust shell
 spawn and talk to a persistent Node sidecar running the **existing, unmodified** application
 logic, and get a real result back into a Tauri webview through an ordinary `invoke()` call?
