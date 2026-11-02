@@ -2522,6 +2522,43 @@ silently failed before - the whole point of the original bug); clicking **Remove
 then **OK** genuinely deleted it. Both the "cancel actually cancels" and "confirm still works"
 halves of the real contract are now proven, not just the second one.
 
+### A real data-migration tool, not just a plan for one
+
+`MIGRATION-PLAN.md` (new, see that file for the full production-migration roadmap this section
+is one piece of) names real data migration as a genuine gap, and the gap turned out to have a
+real wrinkle worth fixing in code rather than just describing: `electronShim.ts`'s own
+`POC_USER_DATA` path can't just be pointed at the real Electron app's actual userData folder,
+because that folder's exact name isn't a safe guess - Electron's `app.getPath('userData')`
+derives from `app.getName()`, which defaults to reading package.json's own `name` field
+(`"ark-server-manager"`), while electron-builder's `productName`
+(`"Bober Server Manager"`) is what often actually shows up on disk depending on exact
+packaging config. Guessing wrong risks silently missing a real user's real profiles.
+
+`sidecar/legacyImport.ts` (three new RPC methods, `legacyImport.detect`/`.preview`/`.run`, plus
+three matching `main.rs` commands and a new "Legacy data import" section in `index.html`) checks
+both candidate folder names per OS instead of assuming one, previews a manually-picked folder
+(the already-fixed native directory dialog) as a fallback, and imports real ARK/Minecraft
+profiles through the real `migrateProfile()`/`migrateMinecraftProfile()` then
+`saveProfile()`/`saveMinecraftProfile()` - the same functions every other real write in this
+PoC already goes through - skipping, not overwriting, ids the current store already has.
+Confirmed idempotent (importing the same fake legacy install twice imports once, skips the
+second time) both standalone and through the real compiled app via devtools-driven `invoke()`
+calls (the manual-browse button's own native-dialog happy path has the same "needs a real
+desktop click" gap as every other native picker in this PoC - see "What this doesn't prove
+yet"). Found and fixed a real bug along the way: a deliberately bare-bones legacy-shaped
+profile (missing `backupDir`/`clusterDirOverride`, fields that may not exist in truly old
+on-disk data) crashed `saveProfile()`'s own sanitization step with
+`Cannot read properties of undefined (reading 'trim')`, because `migrateProfile()` itself
+never defaults `backupDir` - in normal real-app use the React form that produces a profile
+object always initializes it first, a guarantee a raw imported JSON file doesn't carry. Fixed
+in the importer (defaulting the three fields `stripWrappingQuotes()` touches before writing),
+not in any real app file. Only profiles/Minecraft profiles plus a best-effort `customMaps.json`
+copy are covered so far - see `MIGRATION-PLAN.md`'s own data-migration section for what's left
+(bans, whitelist, watchlist, access tokens, and confirming which of the two candidate folder
+names a real installed copy actually uses) - 166 Tauri commands total now (counted directly
+from `main.rs`'s own `generate_handler!` list, not carried forward by arithmetic from the
+thirty-sixth page's own count above, which this correction doesn't revisit).
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with

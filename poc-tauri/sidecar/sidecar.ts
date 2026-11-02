@@ -132,6 +132,7 @@ import { applyIniLockSetting } from '../../src/main/lib/iniLock'
 import { syncAllPlayerJoinAlertWatches } from '../../src/main/lib/playerJoinAlertWatch'
 import { syncAllPlayerActivityWatches } from '../../src/main/lib/playerActivityWatch'
 import { getDefaultDataDir } from '../../src/main/lib/dataDir'
+import { detectLegacyCandidates, previewLegacyImport, runLegacyImport } from './legacyImport'
 import { getLocalNetworkIps } from '../../src/main/lib/webDashboard'
 import { appUpdateEvents, checkForUpdate, installDownloadedUpdate, getAppUpdateStatus } from '../../src/main/lib/appUpdater'
 import { serializeClusterBundle, parseClusterBundle } from '../../src/main/lib/clusterExport'
@@ -1448,7 +1449,14 @@ const methods: Record<string, (params: unknown) => unknown> = {
       )
     }
     return detectMinecraftProfile(installDir)
-  }
+  },
+  // First real piece of MIGRATION-PLAN.md's data-migration gap: finding and importing a real
+  // user's existing Electron install data into this Tauri shell's own store - see
+  // legacyImport.ts's own top comment for why "detect" checks two candidate folders instead of
+  // asserting one exact path.
+  'legacyImport.detect': () => detectLegacyCandidates(),
+  'legacyImport.preview': (params) => previewLegacyImport((params as { path: string }).path),
+  'legacyImport.run': (params) => runLegacyImport((params as { path: string }).path)
 }
 
 let stopConsoleWatch: (() => void) | null = null

@@ -178,6 +178,23 @@
     <button id="dashboard-status-btn">Refresh status (dashboard_status)</button>
     <button id="dashboard-stop-btn">Stop dashboard (dashboard_stop)</button>
     <div id="dashboard-status">Not started yet.</div>
+    <hr style="border-color: #2c303a; margin: 24px 0" />
+    <h2 style="font-size: 1.1rem">Legacy data import (MIGRATION-PLAN.md's data-migration gap)</h2>
+    <p style="color: #9aa0ab; margin-top: 0">
+      Finds and imports a real existing Electron-app install's data - see
+      <code>sidecar/legacyImport.ts</code>'s own top comment for why "Scan" checks two candidate
+      folder names instead of assuming one exact path. Imported profiles go through the real,
+      unmodified <code>migrateProfile()</code>/<code>migrateMinecraftProfile()</code> and
+      <code>saveProfile()</code>/<code>saveMinecraftProfile()</code> - the same functions every
+      other real write in this PoC already uses - and already-present ids are skipped, not
+      overwritten.
+    </p>
+    <button id="legacy-scan-btn">Scan for an existing install (legacy_import_detect)</button>
+    <button id="legacy-browse-btn">Browse manually... (dialog_select_directory)</button>
+    <div id="legacy-candidates"></div>
+    <div id="legacy-preview"></div>
+    <button id="legacy-import-btn" disabled>Import</button>
+    <div id="legacy-import-status">Scan or browse for a legacy install first.</div>
     <script type="module">
       const { invoke } = window.__TAURI__.core
       const { listen } = window.__TAURI__.event
@@ -475,6 +492,80 @@
         invoke('dashboard_status').then(renderDashboardStatus).catch((err) => {
           dashboardStatusEl.textContent = `Error calling dashboard_status: ${err}`
         })
+      })
+
+      const legacyScanBtn = document.getElementById('legacy-scan-btn')
+      const legacyBrowseBtn = document.getElementById('legacy-browse-btn')
+      const legacyCandidatesEl = document.getElementById('legacy-candidates')
+      const legacyPreviewEl = document.getElementById('legacy-preview')
+      const legacyImportBtn = document.getElementById('legacy-import-btn')
+      const legacyImportStatusEl = document.getElementById('legacy-import-status')
+      let selectedLegacyPath = null
+
+      function selectLegacyCandidate(candidate) {
+        selectedLegacyPath = candidate.path
+        if (candidate.error) {
+          legacyPreviewEl.textContent = `Selected: ${candidate.path} - error reading config.json: ${candidate.error}`
+          legacyImportBtn.disabled = true
+        } else if (!candidate.hasConfig) {
+          legacyPreviewEl.textContent = `Selected: ${candidate.path} - no config.json found here.`
+          legacyImportBtn.disabled = true
+        } else {
+          legacyPreviewEl.textContent = `Selected: ${candidate.path} - ${candidate.profileCount} ARK profile(s), ${candidate.minecraftProfileCount} Minecraft profile(s) found.`
+          legacyImportBtn.disabled = false
+        }
+      }
+
+      legacyScanBtn.addEventListener('click', () => {
+        legacyCandidatesEl.textContent = 'Scanning...'
+        invoke('legacy_import_detect')
+          .then((candidates) => {
+            legacyCandidatesEl.innerHTML = ''
+            for (const candidate of candidates) {
+              const btn = document.createElement('button')
+              btn.textContent = candidate.hasConfig
+                ? `${candidate.path} (${candidate.profileCount} ARK + ${candidate.minecraftProfileCount} Minecraft profiles)`
+                : `${candidate.path} (no config.json)`
+              btn.disabled = !candidate.hasConfig
+              btn.addEventListener('click', () => selectLegacyCandidate(candidate))
+              legacyCandidatesEl.appendChild(btn)
+              legacyCandidatesEl.appendChild(document.createElement('br'))
+            }
+            if (!candidates.some((c) => c.hasConfig)) {
+              legacyCandidatesEl.appendChild(
+                document.createTextNode('Neither candidate folder has a config.json in this environment - try "Browse manually..." instead.')
+              )
+            }
+          })
+          .catch((err) => {
+            legacyCandidatesEl.textContent = `Error calling legacy_import_detect: ${err}`
+          })
+      })
+
+      legacyBrowseBtn.addEventListener('click', () => {
+        invoke('dialog_select_directory')
+          .then((dir) => {
+            if (!dir) return
+            return invoke('legacy_import_preview', { path: dir }).then(selectLegacyCandidate)
+          })
+          .catch((err) => {
+            legacyPreviewEl.textContent = `Error browsing/previewing: ${err}`
+          })
+      })
+
+      legacyImportBtn.addEventListener('click', () => {
+        if (!selectedLegacyPath) return
+        legacyImportStatusEl.textContent = 'Importing...'
+        invoke('legacy_import_run', { path: selectedLegacyPath })
+          .then((result) => {
+            legacyImportStatusEl.textContent =
+              `Imported ${result.importedProfiles} ARK profile(s) (${result.skippedProfiles} already present), ` +
+              `${result.importedMinecraftProfiles} Minecraft profile(s) (${result.skippedMinecraftProfiles} already present). ` +
+              `Custom maps file copied: ${result.customMapsCopied}.`
+          })
+          .catch((err) => {
+            legacyImportStatusEl.textContent = `Error calling legacy_import_run: ${err}`
+          })
       })
     </script>
   </body>

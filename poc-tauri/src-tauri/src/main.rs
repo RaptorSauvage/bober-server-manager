@@ -1202,6 +1202,28 @@ fn minecraft_profiles_import(install_dir: String, sidecar: tauri::State<SidecarH
     sidecar.call("minecraft.profiles.importFromInstall", Some(serde_json::json!({ "installDir": install_dir })))
 }
 
+/// Backs the real-data-migration tool's "Scan for an existing install" step - see
+/// sidecar/legacyImport.ts's own top comment for why this checks two candidate folders.
+#[tauri::command]
+fn legacy_import_detect(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("legacyImport.detect", None)
+}
+
+/// Same read-only preview, for a manually-picked folder (native dialog fallback) instead of one
+/// of the two guessed candidates.
+#[tauri::command]
+fn legacy_import_preview(path: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("legacyImport.preview", Some(serde_json::json!({ "path": path })))
+}
+
+/// The actual write path - imports profiles/Minecraft profiles from the given legacy folder's
+/// real config.json through the real saveProfile()/saveMinecraftProfile(), skipping ids the
+/// current store already has.
+#[tauri::command]
+fn legacy_import_run(path: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("legacyImport.run", Some(serde_json::json!({ "path": path })))
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -1594,7 +1616,10 @@ fn main() {
             minecraft_server_start,
             minecraft_server_stop,
             minecraft_server_kill,
-            minecraft_profiles_import
+            minecraft_profiles_import,
+            legacy_import_detect,
+            legacy_import_preview,
+            legacy_import_run
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -50,7 +50,54 @@ correctement dans un seul fichier de pont, plus les éventuelles commandes jamai
 le PoC (certains des 39 modules `src/main/ipc/*.ts` n'ont peut-être pas tous leurs endpoints
 couverts un par un - à auditer module par module contre `main.rs`).
 
-### 2. Le flux de mise à jour automatique n'est pas porté du tout
+### 2. Migration des données de l'ancien manager Electron
+
+**Mis en chantier et testé de bout en bout, pas juste planifié** - voir `poc-tauri/sidecar/
+legacyImport.ts` et la nouvelle section "Legacy data import" de `index.html`.
+
+Le vrai problème, découvert en creusant plutôt que supposé : on ne peut pas se contenter de
+pointer `electronShim.ts` vers le même chemin que l'appli Electron réelle, parce que ce chemin
+n'est pas garanti. `app.getPath('userData')` d'Electron dérive de `app.getName()`, qui lit par
+défaut le champ `name` de `package.json` (`"ark-server-manager"`) - mais `productName`
+("Bober Server Manager", utilisé par electron-builder pour le nom de l'installeur) est souvent
+ce qui apparaît réellement dans le nom du dossier selon la configuration exacte d'electron-
+builder. Parier sur un seul nom au hasard, c'est risquer de rater silencieusement les vraies
+données d'un utilisateur.
+
+Solution retenue : un vrai outil d'import plutôt qu'une correspondance de chemin fragile.
+Trois méthodes RPC (`legacyImport.detect`/`.preview`/`.run`) :
+- **detect** vérifie les deux dossiers candidats (par OS : `%APPDATA%` sur Windows,
+  `~/Library/Application Support` sur macOS, `~/.config` sur Linux, avec les deux noms
+  possibles) et rapporte honnêtement ce qui existe, sans rien écrire.
+- **preview** fait la même chose pour un dossier choisi à la main (sélecteur natif déjà
+  fonctionnel depuis le fix confirm() de cette session).
+- **run** importe réellement : chaque profil ARK/Minecraft passe par les vraies
+  `migrateProfile()`/`migrateMinecraftProfile()` puis les vraies `saveProfile()`/
+  `saveMinecraftProfile()` - les mêmes fonctions que tout le reste de ce PoC utilise déjà pour
+  écrire - et les ids déjà présents sont ignorés, jamais écrasés (testé : lancer l'import deux
+  fois de suite ne duplique rien).
+
+**Un vrai bug trouvé en testant, pas en lisant le code** : un profil legacy minimal (sans
+`backupDir` ni `clusterDirOverride`, des champs qui n'existaient pas dans d'anciens schémas)
+faisait planter `saveProfile()` (`Cannot read properties of undefined (reading 'trim')`) parce
+que `migrateProfile()` ne défaultise pas tous les champs que l'étape de sanitization de
+`saveProfile()` suppose présents - dans l'appli réelle ce n'est jamais un problème puisque le
+formulaire React initialise toujours ces champs à `''` avant d'appeler `saveProfile()`, une
+garantie qu'un fichier JSON importé brut n'a pas. Corrigé côté importeur (defaulting explicite
+de ces trois champs avant l'écriture), pas en touchant le vrai code de l'appli.
+
+**Ce qu'il reste** : seuls les profils ARK/Minecraft sont importés pour l'instant, plus une
+copie best-effort de `customMaps.json` (dossier Documents). Les autres tableaux du store
+(bans, whitelist, watchlist, tokens d'accès web dashboard, historique d'événements de mods,
+etc.) sont mécaniquement identiques à porter - même mécanisme exactement, juste pas encore
+fait, pour garder le premier jet honnête et borné plutôt que de prétendre à un import
+"tout compris" jamais vraiment testé champ par champ. Le vrai nom de dossier Electron
+(`productName` vs `name`) n'a jamais été vérifié sur une vraie installation - les deux
+candidats sont couverts, mais confirmer lequel est le bon sur une vraie machine Windows reste
+à faire. Le bouton natif de sélection manuelle n'a pas été testé avec un vrai clic humain
+(même gap que les autres sélecteurs natifs de ce PoC, voir section suivante).
+
+### 3. Le flux de mise à jour automatique n'est pas porté du tout
 
 Le vrai code utilise `electron-updater` (`src/main/lib/appUpdater.ts`), spécifique à
 Electron - rien de commun avec Tauri. Il faut :
@@ -63,7 +110,7 @@ Electron - rien de commun avec Tauri. Il faut :
   Settings screen en dépendent déjà côté affichage, mais la mécanique réelle derrière
   (`checkForUpdate()`) doit être réécrite, pas juste re-brillée.
 
-### 3. Signature de code (bloquant pour une diffusion publique sur Windows)
+### 4. Signature de code (bloquant pour une diffusion publique sur Windows)
 
 Sans certificat Authenticode, l'installeur `.msi`/`.exe` déclenchera l'avertissement
 SmartScreen "Windows a protégé votre PC" à chaque installation - acceptable pour des tests
@@ -73,7 +120,7 @@ internes, pas pour des utilisateurs grand public. Il faut :
 - Intégrer la signature dans le pipeline de build (`tauri.conf.json`'s `bundle.windows.certificateThumbprint`
   ou signature externe post-build).
 
-### 4. Les happy paths natifs jamais cliqués pour de vrai
+### 5. Les happy paths natifs jamais cliqués pour de vrai
 
 Le PoC a prouvé l'architecture des dialogues natifs (le code compile, s'invoque, se comporte
 correctement en cas d'échec) mais jamais le cas "l'utilisateur choisit réellement un
@@ -84,7 +131,7 @@ bonne douzaine à travers l'appli) n'a pas forcément été recliqué un par un.
 vu que le bug était central et commun à tous, mais une passe de QA manuelle sur Windows reste
 la bonne façon de clore ce point avant diffusion.
 
-### 5. Jamais testé contre un vrai serveur ARK/Minecraft
+### 6. Jamais testé contre un vrai serveur ARK/Minecraft
 
 Toute la logique de spawn/lifecycle/log-watching a été prouvée avec des scripts stand-in
 (`server.installTestExecutable`, l'équivalent Minecraft) qui imitent fidèlement le
@@ -94,7 +141,7 @@ Minecraft. Avant tout déploiement en remplacement d'Electron, il faut une vraie
 validation : lancer, arrêter, killer, crash-reconnect, RCON, SteamCMD update, sur de vrais
 serveurs, sur une vraie machine Windows.
 
-### 6. Pipeline de build CI
+### 7. Pipeline de build CI
 
 Rien n'existe aujourd'hui pour builder automatiquement : sidecar SEA (`build.mjs` +
 `build-sea.mjs`), bot SEA (`build-bot.mjs` + `build-bot-sea.mjs`), bundle React
@@ -104,7 +151,7 @@ Linux en matrice. Un pipeline GitHub Actions (ou équivalent) multi-OS est un pr
 livrer des releases de façon fiable et reproductible, pas quelque chose à faire à la main à
 chaque version.
 
-### 7. Taille et temps de démarrage du binaire
+### 8. Taille et temps de démarrage du binaire
 
 Le `.deb` buildé pèse 93,65 Mio (deux runtimes Node embarqués : sidecar principal + bot
 Discord en SEA). Pas mesuré : le temps de démarrage réel sur une machine Windows grand public
@@ -116,14 +163,18 @@ promettre un temps de démarrage à l'utilisateur final.
 
 1. **App shell + pont `window.api` unifié** (section 1) - le vrai bloqueur structurel, tout le
    reste en dépend pour devenir une appli plutôt qu'une collection de démos.
-2. **Audit module par module** des 39 fichiers `src/main/ipc/*.ts` contre les commandes
+2. **Finir la migration de données** (section 2, déjà démarrée) - étendre `legacyImport.ts` aux
+   tableaux du store restants (bans, whitelist, watchlist, tokens), et confirmer sur une vraie
+   machine Windows quel nom de dossier (`name` vs `productName`) l'appli Electron réelle utilise
+   effectivement.
+3. **Audit module par module** des 39 fichiers `src/main/ipc/*.ts` contre les commandes
    `main.rs` existantes - combler les trous avant de considérer la surface "complète".
-3. **QA manuelle sur Windows** : vrais dialogues natifs, chaque bouton de confirmation, vrai
+4. **QA manuelle sur Windows** : vrais dialogues natifs, chaque bouton de confirmation, vrai
    serveur ARK/Minecraft si possible.
-4. **Auto-update** (`tauri-plugin-updater`) - nécessaire avant toute diffusion au-delà d'un
+5. **Auto-update** (`tauri-plugin-updater`) - nécessaire avant toute diffusion au-delà d'un
    cercle de testeurs, puisque sans lui il n'y a aucune façon de pousser le prochain correctif.
-5. **Pipeline CI multi-OS**, en parallèle de 3-4 une fois l'App shell stable.
-6. **Signature de code Windows** - dernière étape avant diffusion publique, une fois le reste
+6. **Pipeline CI multi-OS**, en parallèle de 3-5 une fois l'App shell stable.
+7. **Signature de code Windows** - dernière étape avant diffusion publique, une fois le reste
    stabilisé (signer un binaire qui va encore beaucoup bouger n'apporte rien).
 
 Ordre délibérément Windows-first comme demandé : macOS/Linux reprennent la même séquence une
