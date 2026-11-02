@@ -1593,6 +1593,16 @@ adoptPersistedProcesses(listProfiles(), getRunningPids(), getRunningStartedAt())
 // nothing had ever subscribed it to real status transitions.
 registerBackupScheduleWatcher()
 
+// Real, unmodified applyWebDashboardSettings(getSettings()) - the real index.ts's own startup
+// call (same file, same shape as adoptPersistedProcesses/registerBackupScheduleWatcher above),
+// missing from this sidecar until a real report: webDashboardEnabled saved in settings had no
+// effect on launch - the dashboard only ever started if something explicitly called
+// dashboard.start (the index.html demo button, or the Settings UI's own save handler, which
+// already calls this for a live toggle - see 'dashboard.start' above). Without this one-time
+// startup call, a profile saved with the toggle already on stayed off every time the sidecar
+// itself restarted, exactly the "doesn't start when the manager starts" gap reported.
+applyWebDashboardSettings(getSettings())
+
 // Real, unmodified armAllModEvents() - the real index.ts's own startup call, same shape as
 // adoptPersistedProcesses/registerBackupScheduleWatcher above: arms every saved event's real
 // node-cron/setTimeout schedule AND runs an immediate reconciliation pass per event, so a

@@ -3543,3 +3543,59 @@ window's event loop was never blocked at all, not just that it recovered quickly
 fake executable's full grace period afterward and confirmed the badge correctly settled on
 "STOPPED" once it actually exited - the fix didn't just unblock the UI, the real stop sequence
 itself still completed correctly underneath it.
+
+## Three more real reports: a missed startup call, and a Windows-only maximize quirk
+
+Same testing session, next round. Three reports arrived together, with a screenshot of the
+maximized app showing the sidebar's bottom-pinned settings icon clipped by the Windows taskbar.
+
+**The web dashboard not starting with the manager** was a real gap, not a PoC-architecture
+quirk. `src/main/index.ts`'s own startup sequence calls `applyWebDashboardSettings(getSettings())`
+once at launch (line 349) so a profile with `webDashboardEnabled` already saved `true` comes back
+up automatically after a restart - this PoC's `sidecar.ts` mirrors the real file's other
+one-time startup calls (`adoptPersistedProcesses`, `registerBackupScheduleWatcher`,
+`armAllModEvents`) in the same relative order, but that one line had been missed. Without it, the
+dashboard only ever started from something explicitly calling `dashboard.start` - the PoC
+index.html's demo button, or the Settings UI's own save handler - so a toggle saved on stayed off
+on every sidecar relaunch, exactly matching the report. Fixed by adding the same real,
+unmodified `applyWebDashboardSettings(getSettings())` call to `sidecar.ts`, same position as the
+real file (between `registerBackupScheduleWatcher()` and `armAllModEvents()`).
+
+Verified with a standalone two-process script rather than trusting that it compiled: spawn the
+sidecar, call `dashboard.start` to persist `webDashboardEnabled: true` into `settings.json`, kill
+that process, spawn a **completely fresh** sidecar process (simulating a real app relaunch), and
+call `dashboard.status` without ever calling `dashboard.start` again. Result on the fresh
+process: `{"running":true,"error":null,"host":"127.0.0.1"}` - PASS. Testing within a single
+already-initialized process would have missed exactly the bug being fixed, since the in-memory
+state would already be right regardless of whether the startup call existed.
+
+The favicon report ("still no icon on the web dashboard") has no new server-side lead - the fix
+from the previous round (pointing the sidecar's `current_dir` at the repo root so `/favicon.png`
+resolves) was already confirmed working with a direct `curl` returning a real 200 and the actual
+icon bytes. Browsers cache a missing/failed favicon aggressively per origin, often surviving a
+plain reload; this needs a hard refresh or a fresh private window against the dashboard's own
+origin to actually re-fetch it, not a server-side change.
+
+**The clipped sidebar icon** turned out to be real-source-adjacent but not a real-source bug at
+all - confirmed first by reading the screenshot directly rather than guessing, which showed a
+genuine clip against the taskbar (not just the sidebar's normal `margin-top: auto` gap between
+its top and bottom icon groups), and then by asking one scoped question (window state when the
+screenshot was taken) instead of assuming: confirmed maximized. That points at a known
+Tauri/tao-on-Windows limitation specific to borderless windows: with `decorations: false` (set
+two rounds ago to fix a double title bar, since this PoC draws its own chrome the same way the
+real Electron app's `frame: false` does), Windows' own maximize-sizing calculation adds invisible
+non-client border insets that a bordered window's OS chrome normally absorbs automatically - a
+frameless window has none of that chrome, so its content ends up a few pixels past the monitor's
+real work area, extending behind the taskbar, instead of exactly filling it. Electron's
+`frame: false` already handles this internally, which is why the real app never showed this bug;
+tao (currently 0.37.2, under tauri 2.12.5) does not yet.
+
+Fixed with the standard community workaround: an `.on_window_event` handler watching for
+`WindowEvent::Resized`, which - only while `window.is_maximized()` is true - clamps the window to
+`monitor.work_area()` (`current_monitor()` → `work_area()`, then `set_size`/`set_position`)
+instead of trusting whatever size Windows' own maximize produced. `cargo build` compiled clean on
+the first try against the real 2.12.5/0.37.2 API shapes. This one could not be verified the way
+the other two were: there is no real Windows maximize semantics to reproduce in this sandbox's
+Xvfb, so unlike every other fix in this document, it ships on "compiles and matches the documented
+workaround for this exact known issue" rather than an observed-working screenshot - it needs
+confirmation on the user's actual Windows machine.

@@ -1677,6 +1677,28 @@ fn main() {
             app.manage(handle);
             Ok(())
         })
+        // A real report: with decorations: false (see "A double title bar" above - this window
+        // draws its own chrome instead of the OS's, same as the real Electron app's frame: false),
+        // maximizing on Windows clips the sidebar's bottom-pinned icon. This is a known Windows/
+        // tao quirk specific to borderless windows: Windows' own maximize sizing adds invisible
+        // non-client border insets a bordered window's OS chrome normally absorbs, which a
+        // decorations: false window has none of, so the content area ends up a few pixels past
+        // the real work area (behind the taskbar) instead of exactly filling it - Electron's own
+        // frame: false already handles this internally, tao does not yet. Standard workaround:
+        // on every resize, if now maximized, explicitly clamp the window to the monitor's work
+        // area (screen size minus the taskbar) instead of trusting Windows' own maximize size.
+        .on_window_event(|window, event| {
+            if !matches!(event, tauri::WindowEvent::Resized(_)) {
+                return;
+            }
+            if !window.is_maximized().unwrap_or(false) {
+                return;
+            }
+            let Ok(Some(monitor)) = window.current_monitor() else { return };
+            let work_area = monitor.work_area();
+            let _ = window.set_size(work_area.size);
+            let _ = window.set_position(work_area.position);
+        })
         .invoke_handler(tauri::generate_handler![
             profiles_list,
             profiles_save,
