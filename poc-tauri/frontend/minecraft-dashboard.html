@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Minecraft Dashboard - real MinecraftDashboard.tsx through Tauri</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: #14161a;
+        color: #e6e8ec;
+      }
+      .page {
+        padding: 24px;
+      }
+      button {
+        background: #2c303a;
+        color: #e6e8ec;
+        border: 1px solid #3a3f4b;
+        border-radius: 4px;
+        padding: 4px 10px;
+        cursor: pointer;
+        font: inherit;
+      }
+      button:hover {
+        background: #3a3f4b;
+      }
+      input,
+      select {
+        background: #1a1d24;
+        color: #e6e8ec;
+        border: 1px solid #3a3f4b;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font: inherit;
+      }
+      .error-message {
+        color: #ff8080;
+      }
+      .empty-state {
+        color: #9aa0ab;
+      }
+      a {
+        color: #8ab4ff;
+      }
+      /* Same deliberate "unstyled but functional" choice as dashboard.html (ARK's own) - the
+         real app.css isn't loaded here, so without this the unstyled <img> icons render at
+         native pixel size and push the server cards off the bottom of the window. */
+      img {
+        max-width: 28px;
+        max-height: 28px;
+      }
+      .server-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .server-card-v2 {
+        border: 1px solid #3a3f4b;
+        border-radius: 6px;
+        padding: 10px;
+        min-width: 260px;
+      }
+    </style>
+  </head>
+  <body>
+    <p style="padding: 12px 24px 0"><a href="index.html">&larr; back to the main PoC page</a></p>
+    <div class="page">
+      <div id="root"></div>
+    </div>
+    <script type="module" src="minecraft-dashboard.js"></script>
+  </body>
+</html>

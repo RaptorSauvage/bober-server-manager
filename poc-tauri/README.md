@@ -127,6 +127,9 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   `minecraft_mods_scan`/`minecraft_mods_open_folder` - one hundred and fifty-eight Tauri
   commands total. The thirty-fifth (see "A thirty-fifth real page" below) added none at all -
   a pure frontend composition of six already-proven tabs, same shape as the twenty-fifth round.
+  The thirty-sixth and last (see "A thirty-sixth real page" below) added `minecraft_server_start`/
+  `minecraft_server_stop`/`minecraft_server_kill`/`minecraft_profiles_import` - one hundred and
+  sixty-two Tauri commands total.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -2423,6 +2426,53 @@ sidebar's own "Start Settings" item lit up active and the real `StartSettingsTab
 place, confirming the cross-tab callback itself (not just each tab in isolation) works unmodified
 against this architecture. No new bug.
 
+### A thirty-sixth and last real page: MinecraftDashboard.tsx, and the actual headline case for Minecraft
+
+`MinecraftDashboard.tsx` - the server list, composing two more already-proven real components
+unmodified (`HardwareStatsBar.tsx`, `InstallMinecraftServerPanel.tsx`) plus `tabsFor` from the
+already-proven `MinecraftServerDetail/index.tsx`. The one genuinely new real backend surface:
+`lib/minecraftActions.ts`'s `doStartMinecraftServer`/`doStopMinecraftServer`/
+`doKillMinecraftServer` → `lib/minecraftProcess.ts`'s `startServer`/`stopServer`/`killServer` -
+**the actual headline case for the Minecraft side**, a real spawned process, monitored, and
+`lib/minecraftDetect.ts`'s `detectMinecraftProfile`/`isValidMinecraftInstall` for the "Import
+existing server" button. This is the last page in this PoC's entire original scope - every real
+page identified at the start of this exploration has now been ported.
+
+**Confirmed standalone**, using a real stand-in shell script (`launchMode: 'script'`, the same
+role `server.installTestExecutable` plays on the ARK side, written fresh for this round since no
+Minecraft equivalent existed yet) that traps `SIGTERM`, prints the real `Done (2.345s)! For help,
+type "help"` ready-marker `startServer()`'s own `READY_MARKER` regex matches, and exits on a
+real `stop` command read from stdin: the full real lifecycle fired correctly end to end -
+`starting` → real console lines captured from the spawned process's piped stdout → the real
+ready-marker regex flipping the status to `running` → a real graceful stdin `"stop"` → the
+script exiting cleanly → `stopped`, with real `manager-log-entry` events at each step. Kill
+(`SIGTERM` sent directly via pid, no stdin command) and `importFromInstall` (both a real valid
+detection and the real honest validation error for an invalid folder) were also confirmed
+standalone.
+
+**Confirmed through the real compiled app:** the real, unmodified `MinecraftDashboard.tsx`
+rendered a full real dashboard - `HardwareStatsBar.tsx` showing genuinely real hardware ("4
+Cores / 4 Threads • Intel Xeon® Processor", "15.7 GB total RAM") and live-polling real network
+throughput (watched the numbers update from "-" to real KB/s figures), real grouped/hidden
+server sections (a `<details>` toggle, a drag handle, bulk start/stop/restart per group), and
+the real card "..." menu correctly reusing `tabsFor()` to omit "Mods" for a `vanilla`-type
+profile (no ecosystem) - the same per-server-type branching "A thirty-fifth real page" already
+proved, now exercised from a second, independent call site. Clicking the real Start button on a
+profile pointed at the stand-in script produced the exact same lifecycle confirmed standalone,
+this time visible live in the UI: the status badge flipped `stopped` → `starting` → `running`,
+real CPU/memory stat tiles went from `-` to live `0%`/`2 MB` (a real `pidusage` read off the
+actual spawned process), and Stop correctly returned everything to `stopped`. No new bug - one
+minor, expected real quirk noted: the Uptime tile briefly shows a negative value right after a
+very recent start, because `now` (the tile's own 30-second-interval clock) is captured at page
+mount, before the server's own real `startedAt` timestamp exists; it self-corrects on the next
+tick, exactly as the component's own code comment says it's designed to.
+
+This closes out the originally-identified scope of this PoC: every real page in both the ARK and
+Minecraft sides of the application has now been proven to run its real, unmodified business
+logic through this Rust/Tauri + Node-sidecar architecture, including the two actual headline
+cases (ARK's own real spawned-process lifecycle, proven earlier, and this round's Minecraft
+equivalent) that the whole exploration set out to answer.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2958,6 +3008,18 @@ against this architecture. No new bug.
   tabs mounted correctly through the real composed shell, including a real in-app tab switch
   triggered from inside `ModsTab.tsx` itself (`onGoToStartSettings`). Only `MinecraftDashboard.tsx`
   (694 lines) remains completely unported - the last unexercised page in this entire PoC's scope.
+- **~~Nothing about MinecraftDashboard.tsx, or a real spawned Minecraft process~~ - proven, a
+  thirty-sixth and last real page.** See "A thirty-sixth real page" above: the real server list,
+  real hardware/network telemetry, real grouping/hiding, and - the actual headline case for the
+  Minecraft side - a real process spawned, monitored, and gracefully stopped via stdin, confirmed
+  both standalone (a purpose-built stand-in script, the Minecraft-side twin of
+  `server.installTestExecutable`) and live in the compiled app. This was the last page in this
+  PoC's original scope - every real page on both the ARK and Minecraft sides has now been proven.
+  What remains genuinely unconfirmed is everything this PoC's own sandbox structurally cannot
+  reach, not anything left unexplored: real third-party API responses (Steam/CurseForge/Mojang/
+  Modrinth), a real ARK/Minecraft dedicated server binary's actual runtime behavior, Windows/
+  macOS parity beyond the one Windows round already run, and a packaged installer's own update
+  path - see the rest of this section, above, for each of those individually.
 
 ## Where the real Electron coupling lives
 

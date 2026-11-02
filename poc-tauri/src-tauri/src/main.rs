@@ -1191,6 +1191,29 @@ fn minecraft_mods_open_folder(profile_id: String, sidecar: tauri::State<SidecarH
     sidecar.call("minecraft.mods.openFolder", Some(serde_json::json!({ "profileId": profile_id })))
 }
 
+/// Backs MinecraftDashboard.tsx - a thirty-sixth real page, and the actual headline case for
+/// the Minecraft side (a real spawned process, same role as server_start/stop/kill already
+/// proven extensively on the ARK side).
+#[tauri::command]
+fn minecraft_server_start(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.server.start", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+#[tauri::command]
+fn minecraft_server_stop(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.server.stop", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+#[tauri::command]
+fn minecraft_server_kill(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.server.kill", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+#[tauri::command]
+fn minecraft_profiles_import(install_dir: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.profiles.importFromInstall", Some(serde_json::json!({ "installDir": install_dir })))
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -1580,7 +1603,11 @@ fn main() {
             minecraft_mods_check_updates,
             minecraft_mods_update,
             minecraft_mods_scan,
-            minecraft_mods_open_folder
+            minecraft_mods_open_folder,
+            minecraft_server_start,
+            minecraft_server_stop,
+            minecraft_server_kill,
+            minecraft_profiles_import
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

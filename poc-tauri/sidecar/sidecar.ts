@@ -190,6 +190,8 @@ import {
   openMinecraftModsFolder
 } from '../../src/main/lib/minecraftMods'
 import type { MinecraftModSource, MinecraftModEcosystem } from '../../shared/minecraftMods'
+import { doStartMinecraftServer, doStopMinecraftServer, doKillMinecraftServer } from '../../src/main/lib/minecraftActions'
+import { detectMinecraftProfile, isValidMinecraftInstall } from '../../src/main/lib/minecraftDetect'
 import { app, shell } from 'electron'
 import { send, resolveRustResponse } from './rpcToRust'
 import type { GameId } from '../../shared/games'
@@ -1413,6 +1415,39 @@ const methods: Record<string, (params: unknown) => unknown> = {
     if (!profile) throw new Error(`Unknown Minecraft profile: ${(params as { profileId: string }).profileId}`)
     await openMinecraftModsFolder(profile)
     return { ok: true }
+  },
+  // Real, unmodified lib/minecraftActions.ts/lib/minecraftDetect.ts - backs
+  // MinecraftDashboard.tsx, a thirty-sixth real page. doStartMinecraftServer/
+  // doStopMinecraftServer/doKillMinecraftServer are the actual headline case for the
+  // Minecraft side: a real spawned process, monitored, stopped gracefully via stdin "stop"
+  // (or RCON), or force-killed - the Minecraft-side twin of serverProcess.ts's own
+  // start/stop/kill already proven extensively on the ARK side.
+  'minecraft.server.start': (params) => {
+    const profile = getMinecraftProfile((params as { profileId: string }).profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${(params as { profileId: string }).profileId}`)
+    return doStartMinecraftServer(profile)
+  },
+  'minecraft.server.stop': (params) => {
+    const profile = getMinecraftProfile((params as { profileId: string }).profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${(params as { profileId: string }).profileId}`)
+    return doStopMinecraftServer(profile)
+  },
+  'minecraft.server.kill': (params) => {
+    const profile = getMinecraftProfile((params as { profileId: string }).profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${(params as { profileId: string }).profileId}`)
+    return doKillMinecraftServer(profile)
+  },
+  // Real, unmodified detectMinecraftProfile()/isValidMinecraftInstall() - backs the Minecraft
+  // Dashboard's own "Import existing server" button, mirroring ipc/minecraft.ts's own handler
+  // exactly (including its real validation error message).
+  'minecraft.profiles.importFromInstall': (params) => {
+    const { installDir } = params as { installDir: string }
+    if (!isValidMinecraftInstall(installDir)) {
+      throw new Error(
+        'This folder does not look like a set-up Minecraft server (no server.properties, eula.txt, jar, or launch script found).'
+      )
+    }
+    return detectMinecraftProfile(installDir)
   }
 }
 
