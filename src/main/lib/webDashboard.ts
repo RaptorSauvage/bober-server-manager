@@ -189,10 +189,24 @@ let lastError: string | null = null
 let lastHost: string | null = null
 
 // Same icon.png the desktop window/taskbar uses (see src/main/index.ts), read once and
-// cached in memory since it never changes while the app is running. Served with an ETag
-// (rather than a long max-age) so a browser that already has an older icon cached - from
-// before an app update replaced this file - re-fetches it on the very next page load
-// instead of holding onto stale bytes for the rest of its cache lifetime.
+// cached in memory since it never changes while the app is running.
+//
+// Served with Cache-Control: no-store and no ETag/If-None-Match/304 at all (see the
+// /favicon.png route below) - not the first design tried here. The first used a long-lived
+// ETag so a browser with an older cached icon would revalidate and pick up a new one; that
+// missed an uglier failure mode entirely: a browser can cache a *broken* response just as
+// durably as a good one. One real round genuinely served a 404 here (before current_dir was
+// fixed in the Tauri PoC shell this also ships through), which some browsers - especially
+// favicons specifically, tracked in their own on-disk store outside the normal HTTP cache -
+// can pin as "this URL has nothing" for a long time, immune to a plain reload or even a new
+// private window. A conditional-GET route can't recover from that on its own: a `304 Not
+// Modified` just confirms "keep using what you already have," which is exactly the problem
+// when what the browser has is broken or nothing. A cache-busted URL (this value's own
+// content hash in the query string - see gameIconUrl below, and renderDashboardHtml's own use
+// of this same etag for the favicon <link>) forces a fetch of a URL that specific browser has
+// never requested before, sidestepping whatever it already has cached for the plain path
+// instead of asking it to revalidate something that was never safe to trust in the first
+// place.
 let faviconCache: Buffer | null | undefined
 let faviconETag = ''
 function getFaviconBuffer(): { buffer: Buffer; etag: string } | null {
@@ -214,10 +228,13 @@ function getFaviconBuffer(): { buffer: Buffer; etag: string } | null {
   return faviconCache ? { buffer: faviconCache, etag: faviconETag } : null
 }
 
-// Per-game icons (shared/games.ts's GameDefinition.iconFileName), same read-once/ETag
-// caching as the favicon above. Keyed by the exact set of file names the registry knows
-// about rather than trusting the request path directly, so a crafted /game-icons/../../x
-// request can't be used to read arbitrary files off disk.
+// Per-game icons (shared/games.ts's GameDefinition.iconFileName), same read-once in-memory
+// caching as the favicon above, and the same no-store/cache-busted-URL serving (see
+// getFaviconBuffer's own comment on why, and gameIconUrl below) rather than ETag/304 - these
+// are ordinary <img> tags, not favicons, but hit the exact same failure mode: a browser that
+// ever saw one 404 can keep it broken indefinitely. Keyed by the exact set of file names the
+// registry knows about rather than trusting the request path directly, so a crafted
+// /game-icons/../../x request can't be used to read arbitrary files off disk.
 const gameIconCache = new Map<string, { buffer: Buffer; etag: string } | null>()
 function getGameIconBuffer(fileName: string): { buffer: Buffer; etag: string } | null {
   if (gameIconCache.has(fileName)) return gameIconCache.get(fileName) ?? null
@@ -422,12 +439,10 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       res.end('Not found')
       return
     }
-    if (req.headers['if-none-match'] === favicon.etag) {
-      res.writeHead(304)
-      res.end()
-      return
-    }
-    res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-cache', ETag: favicon.etag })
+    // Plain 200 every time, no ETag/If-None-Match/304 - see getFaviconBuffer's own comment on
+    // why a conditional-GET icon route turned out to be the wrong shape of fix entirely, not
+    // just an incomplete one.
+    res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' })
     res.end(favicon.buffer)
     return
   }
@@ -441,13 +456,9 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       res.end('Not found')
       return
     }
-    if (req.headers['if-none-match'] === icon.etag) {
-      res.writeHead(304)
-      res.end()
-      return
-    }
+    // Same no-store reasoning as /favicon.png above - see getFaviconBuffer's own comment.
     const iconContentType = /\.jpe?g$/i.test(fileName) ? 'image/jpeg' : 'image/png'
-    res.writeHead(200, { 'Content-Type': iconContentType, 'Cache-Control': 'no-cache', ETag: icon.etag })
+    res.writeHead(200, { 'Content-Type': iconContentType, 'Cache-Control': 'no-store' })
     res.end(icon.buffer)
     return
   }

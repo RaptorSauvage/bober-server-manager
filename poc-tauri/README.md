@@ -3752,3 +3752,38 @@ PoC's own verbatim copy) re-synced to match. Verified by reproducing the exact s
 involvement repro after the fix, at the user's own `2560x1440`: the gear icon, cropped and zoomed
 from the same corner as the broken screenshot, now sits fully visible with clean padding beneath
 it - not inferred from reading the CSS fix, seen directly in a second screenshot of the same spot.
+
+## The favicon, round four - stop asking the browser to revalidate something broken
+
+The cache-busted URL (round two of this fix) genuinely worked once - confirmed by the user seeing
+the icon after opening the page fresh. The very next report: gone again, in Firefox this time, on
+a tab that had been open since before that fix. At that point the user asked, reasonably, for the
+affected code to be rewritten rather than chased through another round of "try this, tell me if it
+worked" - this round is that rewrite, not another incremental patch.
+
+The real flaw wasn't the cache-busting (that part was fine and stays) - it was still using
+conditional GET (`ETag` + `If-None-Match` + `304 Not Modified`) underneath it for both
+`/favicon.png` and `/game-icons/...`. Conditional GET is designed to answer one question: "does
+the client's cached copy still match the current one?" It was never designed to answer the
+question this bug actually turns on: "is the client's cached copy any good in the first place?" A
+browser that cached a *broken* state - the genuine 404 this endpoint served for a while before an
+earlier fix - and later sends `If-None-Match` for whatever it has, gets a `304`: "yes, keep using
+what you've got," confirming the broken state right back to it instead of ever correcting it.
+Long-lived tabs are exactly where this bites hardest, since they're the most likely to be holding
+a cache entry from before any of this was fixed.
+
+Rewritten, not patched further: both routes now always answer `200` with the full bytes,
+unconditionally, every single request, headed `Cache-Control: no-store` - no `ETag`, no
+`If-None-Match` handling, no `304` branch left anywhere in either handler. There is no longer a
+code path where this server tells a browser "trust what you already have" for either of these
+URLs, so there's nothing left for a browser to (mis)trust. The already-shipped cache-busted
+`?v=<hash>` URLs stay, as a second, independent layer specifically for the favicon-database class
+of browser storage that's known to sit outside the ordinary HTTP cache `no-store` governs.
+
+Verified with a script built to specifically attack the exact failure mode this closes, not just
+re-confirm the happy path already covered by the last two rounds' scripts: real HTTP requests to
+both endpoints with a fabricated, deliberately-wrong `If-None-Match` header (a fake stale hash,
+and separately the `*` wildcard a cache can send to mean "anything you've got") - the kind of
+header a browser holding a bad cached entry would actually send. Every request came back `200`
+with the real, correct image bytes and `Cache-Control: no-store`, never a `304`, regardless of
+what the "client" claimed to already have.
