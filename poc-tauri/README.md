@@ -260,6 +260,14 @@ sudo dpkg -i target/release/bundle/deb/tauri-poc-shell_0.1.0_amd64.deb
 See "Actually bundled and installed with `cargo tauri build`" below before trusting a `cargo
 build` dev run alone - it hid a real crash-on-install bug that only the actual bundle surfaced.
 
+`bundle.targets` also lists `"msi"` and `"nsis"` now, for a real Windows installer (`.msi` via
+WiX, `.exe` via NSIS) instead of just the dev binary - confirmed safe to add from this Linux
+sandbox: a plain `cargo tauri build` (no `--bundles` override) here still only builds the `.deb`,
+silently skipping the Windows-only targets rather than erroring, so this doesn't change the
+Linux build path at all. Building the `.msi`/`.exe` themselves still needs an actual Windows
+machine to confirm - same category of gap as everything else under "Windows/macOS parity beyond
+the one round already run" in "What this doesn't prove yet".
+
 ## Result
 
 **Confirmed on real Windows (WebView2), not just this Linux sandbox:** the window opens clean

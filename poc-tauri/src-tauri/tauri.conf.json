@@ -22,7 +22,7 @@
   "bundle": {
     "active": true,
     "externalBin": ["binaries/sidecar-bin", "binaries/bot-bin"],
-    "targets": ["deb"],
+    "targets": ["deb", "msi", "nsis"],
     "icon": ["icons/icon.png"]
   }
 }
