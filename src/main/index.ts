@@ -6,6 +6,11 @@
 process.env.UV_THREADPOOL_SIZE = '8'
 
 import { app, BrowserWindow, Menu, Tray, shell, dialog } from 'electron'
+// Must be the first import that touches `app` - pins userData to the pre-rename folder name
+// before store.ts's own `new Store(...)` (imported below) can resolve the default from
+// app.getName(), which the package.json `name` rename just below it would otherwise change.
+// See this file's own top comment for the full why.
+import './legacyUserDataCompat'
 import { join } from 'node:path'
 import { registerIpcHandlers } from './ipc'
 import {

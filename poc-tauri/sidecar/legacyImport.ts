@@ -5,14 +5,16 @@
  *
  * Why this can't just be "point electronShim.ts at the same path Electron used": Electron's
  * own `app.getPath('userData')` resolves from `app.getName()`, which reads package.json's
- * `name` field by default - but electron-builder's `productName` ("Bober Server Manager") is
- * what actually shows up in Windows/macOS/Linux folder names in practice for a lot of
- * electron-builder setups, and the exact rule depends on electron-builder's own packaging
- * behavior (whether it rewrites the packaged app's package.json `name`), which isn't something
- * to assert confidently without checking an actual installed copy. Rather than hardcode a
- * guess and risk silently missing a real user's data, this checks both plausible folder names
- * and reports exactly what it found - the user (or a real future UI) picks the right one, with
- * a manual folder picker (the already-fixed native dialog) as the fallback either way.
+ * `name` field by default - and this repo's own package.json `name` field has itself changed
+ * over time (`ark-server-manager` -> `bober-server-manager`, to match the app's real display
+ * name). `src/main/legacyUserDataCompat.ts` (in the real app, not this PoC) pins every real
+ * build going forward back to the pre-rename `ark-server-manager` folder specifically so no
+ * real user's data ever silently moves - but that's a guarantee about the real app's *future*
+ * builds, not about every installed copy that might exist from before that fix landed or from
+ * a differently-configured build. Rather than hardcode a single guess and risk silently missing
+ * a real user's data, this still checks both plausible folder names and reports exactly what it
+ * found - the user (or a real future UI) picks the right one, with a manual folder picker (the
+ * already-fixed native dialog) as the fallback either way.
  */
 import fs from 'node:fs'
 import os from 'node:os'

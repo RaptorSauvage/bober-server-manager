@@ -29,6 +29,12 @@ prioritaire puisque c'est la plateforme de la majorité des utilisateurs de ce m
 - **Un build Windows réel a déjà tourné une fois** (voir "Result" dans le README) : fenêtre
   WebView2, lecture/écriture de profil, push temps réel, tous confirmés visuellement sur une
   vraie machine Windows.
+- **Premier outil de migration de données réel, pas juste planifié** (voir section 2
+  ci-dessous) - `legacyImport.ts` détecte/prévisualise/importe les vraies données ARK/Minecraft
+  d'une installation Electron existante, et le `package.json` racine de l'appli réelle a été
+  renommé `ark-server-manager` → `bober-server-manager` sans casser les installations
+  existantes (`src/main/legacyUserDataCompat.ts` repointe explicitement vers l'ancien dossier -
+  confirmé par un build complet et les 1358 tests, tous verts, après le rename).
 
 ## Ce qui n'existe pas encore et qui est le vrai travail
 
@@ -86,16 +92,30 @@ formulaire React initialise toujours ces champs à `''` avant d'appeler `savePro
 garantie qu'un fichier JSON importé brut n'a pas. Corrigé côté importeur (defaulting explicite
 de ces trois champs avant l'écriture), pas en touchant le vrai code de l'appli.
 
+**L'ambiguïté de nom elle-même est maintenant réglée à la source, dans la vraie appli.** Le
+`package.json` racine a été renommé `ark-server-manager` → `bober-server-manager` (pour
+correspondre au vrai nom affiché, "Bober Server Manager") - mais comme `app.getPath('userData')`
+dérive de ce nom, renommer le champ seul aurait silencieusement fait pointer la prochaine mise
+à jour de chaque installation réelle vers un dossier neuf et vide, sans rien migrer. Fixé avec
+`src/main/legacyUserDataCompat.ts` (nouveau, dans l'appli réelle) : un `app.setPath('userData',
+...)` explicite, importé en tout premier dans `index.ts` - avant que `store.ts` ne résolve son
+propre chemin par défaut - qui repointe vers le dossier historique `ark-server-manager` quoi
+qu'il arrive. Confirmé par un vrai build complet (`npm run build`) et la suite de tests
+(1358 tests, tous verts) après le rename. Conséquence concrète pour cet import tool : le
+candidat `ark-server-manager` restera le bon pour toujours, pour toute installation passée ou
+future - celui-ci peut donc être traité comme la réponse de confiance plutôt qu'une simple
+hypothèse parmi deux, même si les deux restent vérifiés par prudence (une installation très
+ancienne et jamais mise à jour depuis avant ce fix, ou une config electron-builder différente,
+reste théoriquement possible).
+
 **Ce qu'il reste** : seuls les profils ARK/Minecraft sont importés pour l'instant, plus une
 copie best-effort de `customMaps.json` (dossier Documents). Les autres tableaux du store
 (bans, whitelist, watchlist, tokens d'accès web dashboard, historique d'événements de mods,
 etc.) sont mécaniquement identiques à porter - même mécanisme exactement, juste pas encore
 fait, pour garder le premier jet honnête et borné plutôt que de prétendre à un import
-"tout compris" jamais vraiment testé champ par champ. Le vrai nom de dossier Electron
-(`productName` vs `name`) n'a jamais été vérifié sur une vraie installation - les deux
-candidats sont couverts, mais confirmer lequel est le bon sur une vraie machine Windows reste
-à faire. Le bouton natif de sélection manuelle n'a pas été testé avec un vrai clic humain
-(même gap que les autres sélecteurs natifs de ce PoC, voir section suivante).
+"tout compris" jamais vraiment testé champ par champ. Le bouton natif de sélection manuelle n'a
+pas été testé avec un vrai clic humain (même gap que les autres sélecteurs natifs de ce PoC,
+voir section suivante).
 
 ### 3. Le flux de mise à jour automatique n'est pas porté du tout
 

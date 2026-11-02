@@ -1,5 +1,5 @@
 {
-  "name": "ark-server-manager",
+  "name": "bober-server-manager",
   "version": "0.1.0",
   "description": "Bober Server Manager",
   "main": "out/main/index.js",
