@@ -1922,10 +1922,32 @@ export function getLocalNetworkIps(): string[] {
  *  same page is always served either way; the client validates any stored token itself via
  *  `GET /api/whoami` once loaded (see the token-gate logic in the client `<script>` below)
  *  and only then learns its role. This flag is not sensitive - it's just "does this
- *  dashboard require a token", not a credential. */
+ *  dashboard require a token", not a credential.
+ *
+ *  Also cache-busts the favicon link's own URL with the icon's content hash (reusing
+ *  getFaviconBuffer's cached ETag, so this costs nothing beyond the one string op below) -
+ *  found necessary after a real report that a fixed favicon that had been genuinely broken
+ *  (served a 404) for a while still didn't show up in a browser even after a hard refresh and
+ *  a fresh private window. The server side was already confirmed correct by then (a direct,
+ *  cold fetch of /favicon.png returns a real 200 with the right PNG bytes), which points at
+ *  Chromium's favicon handling specifically: unlike the page itself, favicons are tracked in
+ *  their own on-disk database keyed by icon URL rather than going through the normal HTTP
+ *  cache, and that store is well known to ignore ordinary cache-busting (ETag/Cache-Control)
+ *  and even to survive into private windows in some versions - a browser that ever saw
+ *  /favicon.png 404 can keep "no icon" pinned to that exact URL indefinitely. Serving the icon
+ *  at a URL the browser has never requested before (the query string here, not the path -
+ *  routing above matches on pathname only) is the one thing that reliably forces a fresh fetch
+ *  regardless of whatever the favicon database already has cached for the plain path. */
 function renderDashboardHtml(authRequired: boolean): string {
-  if (!authRequired) return DASHBOARD_HTML
-  return DASHBOARD_HTML.replace('<script>', '<script>window.__authRequired = true;</script>\n<script>')
+  const favicon = getFaviconBuffer()
+  const html = favicon
+    ? DASHBOARD_HTML.replace(
+        'href="/favicon.png"',
+        `href="/favicon.png?v=${favicon.etag.replace(/"/g, '')}"`
+      )
+    : DASHBOARD_HTML
+  if (!authRequired) return html
+  return html.replace('<script>', '<script>window.__authRequired = true;</script>\n<script>')
 }
 
 

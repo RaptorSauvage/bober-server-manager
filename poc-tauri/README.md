@@ -3620,3 +3620,40 @@ this exact fix already turned out wrong once: `cargo build` and a clean Xvfb smo
 that could be verified here, and neither says anything about real Windows maximize behavior. This
 needs the user's own rebuild-and-retest to actually confirm, not just a second "should work"
 write-up.
+
+## The favicon, round three - a real fix in real shared source, not another cache-clearing suggestion
+
+Two earlier rounds both treated the missing web-dashboard favicon as a browser-cache problem to
+explain away rather than a bug to fix: first confirming the server genuinely serves the icon
+(`curl` returning a real 200 with the right PNG bytes), then suggesting a hard refresh or a fresh
+private window once that held up. The next real report, after the user actually tried both: still
+nothing. That's the point where "it's just the browser's cache" stops being a sufficient answer -
+asked a scoped follow-up to confirm this was specifically the favicon and not a misread of the
+other two reports in the same message (it was), then re-verified server correctness from scratch
+rather than trusting an earlier session's `curl` run - a throwaway Node script spawning a
+completely fresh sidecar, calling `dashboard.start`, and fetching both `/` and `/favicon.png`
+cold (`cache: 'no-store'`). Still correct: real `<link rel="icon">` tag, real 200, real PNG magic
+bytes, right ETag. The server was never the problem.
+
+What was never tried: actually changing the favicon's own URL. Chromium tracks favicons in a
+separate on-disk database keyed by icon URL, outside the normal HTTP cache pipeline - it's a
+well-documented quirk that this store largely ignores ordinary cache-busting (`ETag`,
+`Cache-Control`) and can keep "this URL has no icon" pinned indefinitely once a browser has ever
+seen `/favicon.png` 404 (which it genuinely did, for a while, before an earlier round's fix), a
+state a plain reload or even a fresh private window doesn't reliably clear in every Chromium
+version. Fixed in real shared source (`src/main/lib/webDashboard.ts`'s `renderDashboardHtml`,
+used by the real app's own web dashboard too, not just this PoC - a browser that ever saw the
+same bug on a real deployment would hit the identical stale-favicon-db problem): the rendered
+`<link>` tag's `href` is now `/favicon.png?v=<the icon's own content hash>`, reusing
+`getFaviconBuffer`'s already-cached ETag rather than computing anything new. `url.pathname` (not
+`req.url`) is what the `/favicon.png` route already matched on, so the query string changes
+nothing about routing - it exists purely so a browser that has never requested *this exact URL*
+before is forced to fetch it fresh, sidestepping whatever the favicon database already has cached
+for the plain path, once and for all rather than hoping a cache header finally gets honored.
+
+Verified two ways, not just by reasoning about Chromium internals: re-ran the same from-scratch
+Node verification script against the rebuilt sidecar and confirmed the HTML now actually contains
+the cache-busted href (`/favicon.png?v=06f7a967ba81d57025c96bbc53260cab`, matching the real icon's
+real hash) resolving to the same correct 200/PNG as before; and `tsc --noEmit -p
+tsconfig.node.json` against the real source tree passes clean, confirming this didn't break the
+type contract of a function three other things in this file still call.
