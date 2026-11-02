@@ -125,7 +125,8 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   `minecraft_mods_search`/`minecraft_mods_install`/`minecraft_mods_remove`/
   `minecraft_mods_set_enabled`/`minecraft_mods_check_updates`/`minecraft_mods_update`/
   `minecraft_mods_scan`/`minecraft_mods_open_folder` - one hundred and fifty-eight Tauri
-  commands total.
+  commands total. The thirty-fifth (see "A thirty-fifth real page" below) added none at all -
+  a pure frontend composition of six already-proven tabs, same shape as the twenty-fifth round.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -2401,6 +2402,27 @@ good reminder that an entry wrapper's own `window.api` surface is itself somethi
 wrong, and that devtools' full list of unhandled rejections - not just the first one - is worth
 reading before concluding what broke.
 
+### A thirty-fifth real page: the real tab-switching shell, composing all six Minecraft tabs
+
+`MinecraftServerDetail/index.tsx` - the Minecraft-side twin of "A twenty-fifth real page"
+(`ServerDetail/index.tsx`'s own ARK tab-shell composition). No new real backend surface at all:
+every tab it renders (`ConsoleTab`, `StartSettingsTab`, `ServerSettingsTab`, `ModsTab`,
+`BackupsTab`, `ServerManagementTab`) is already individually proven, so this entry is simply
+their `window.api` union. The genuinely new thing this round proves is the shell itself: the
+real grouped left nav (Overview/Configuration/Maintenance), the `tab` state switching which
+child actually mounts, and `tabsFor()`'s per-server-type branching (a `forge` profile correctly
+shows "Mods", not "Plugins" - SpongeForge's own both-at-once case remains unexercised, no profile
+of that type has exercised this PoC yet).
+
+**Confirmed through the real compiled app** (no standalone round needed, same reasoning as "A
+twenty-fifth real page"): clicked through all six tabs in the real sidebar - each one's already-
+proven content rendered correctly, with the active item highlighted. The one thing a standalone
+single-tab entry could never prove: clicking "Go to Start Settings" from `ModsTab.tsx`'s own
+no-version-set empty state (`onGoToStartSettings`) performed a real **in-app** tab switch - the
+sidebar's own "Start Settings" item lit up active and the real `StartSettingsTab.tsx` mounted in
+place, confirming the cross-tab callback itself (not just each tab in isolation) works unmodified
+against this architecture. No new bug.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2931,6 +2953,11 @@ reading before concluding what broke.
   page"'s `confirmAction()` bug, this time on the Remove button. All six `MinecraftServerDetail/`
   tabs are now individually proven - only `index.tsx` (the tab-shell composition itself, now
   unblocked) and `MinecraftDashboard.tsx` remain unported.
+- **~~Nothing about the real Minecraft tab-switching shell, or a cross-tab navigation
+  callback~~ - proven, a thirty-fifth real page.** See "A thirty-fifth real page" above: all six
+  tabs mounted correctly through the real composed shell, including a real in-app tab switch
+  triggered from inside `ModsTab.tsx` itself (`onGoToStartSettings`). Only `MinecraftDashboard.tsx`
+  (694 lines) remains completely unported - the last unexercised page in this entire PoC's scope.
 
 ## Where the real Electron coupling lives
 
