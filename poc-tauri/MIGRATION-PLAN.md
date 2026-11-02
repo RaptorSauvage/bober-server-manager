@@ -57,6 +57,23 @@ des utilisateurs de ce manager.
   le fichier réel (passage en `fs/promises.access()` async), pas contourné côté PoC - bénéficie
   donc à l'appli Electron réelle aussi, pas juste au portage. Les 1358 tests + `tsc --noEmit`
   restent verts après le fix.
+- **Un vrai bug "serveur bloqué sur Starting" trouvé et corrigé, via le premier vrai démarrage
+  de serveur de ce projet** (voir README, "A real server stuck on Starting") - une fois les
+  vraies données importées, démarrer un vrai serveur ARK restait sur "Starting" les 5 minutes
+  complètes avant de passer à "Running" (le filet de sécurité `STARTUP_FALLBACK_MS`, pas la
+  vraie détection). La ligne de log attendue était bien présente dans le vrai `ShooterGame.log`
+  - le vrai bug était dans `watchLogFileForMarker()` (`src/main/lib/serverProcess.ts`) : sa
+  première lecture ne fait que fixer une référence de taille, sans jamais vérifier le contenu
+  déjà présent (volontaire, pour ne pas re-détecter une ancienne ligne au réouverture de la
+  Console d'un serveur déjà en marche) - donc si tout le log de démarrage (marqueur inclus)
+  s'écrit avant le tout premier sondage, ce n'est jamais vu. Plus probable à travers ce portage
+  qu'en Electron direct, à cause de l'aller-retour IPC supplémentaire avant que la surveillance
+  ne démarre. Corrigé dans le fichier réel : vérifie maintenant aussi le contenu actuel
+  immédiatement, mais seulement si la date de modification du fichier est postérieure au moment
+  où ce démarrage précis a été demandé - ce qui distingue correctement "le marqueur de cette
+  session" de "un marqueur périmé d'une session précédente". Un seul appelant
+  (`doStartServer`), donc aucun risque pour les 5 autres usages de la fonction partagée
+  sous-jacente. Les 1359 tests (dont un nouveau) + `tsc --noEmit` restent verts.
 
 ## Ce qui n'existe pas encore et qui est le vrai travail
 

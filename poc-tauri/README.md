@@ -3394,3 +3394,45 @@ alone), and a devtools Console check immediately after showed nothing - no error
 `tsc --noEmit -p tsconfig.web.json` and a full `electron-vite build` both stayed clean, and the
 PoC itself was rebuilt across all three layers (sidecar unaffected, React re-bundled, `cargo
 build`) to pick up the real, unmodified `App.tsx` this PoC's `app.js` bundles from.
+
+## A real server stuck on "Starting" - a third, real bug found via the legacy import tool
+
+With the freeze resolved, the user imported their own real ARK/Minecraft data via "Legacy data
+import" (see that section above) and started a real server through the compiled PoC for the
+first time this whole project - the first time any server status transition in this PoC involved
+an actual game process rather than the synthetic test executable every earlier round used. It
+stuck on "Starting" for the full 5 minutes before flipping to "Running" - `doStartServer`'s
+`STARTUP_FALLBACK_MS` safety net firing, not the real detection path
+(`watchLogFileForMarker` watching `ShooterGame.log` for `"Server has completed startup and is
+now advertising for join"`). Confirmed with the user that the marker line genuinely was in the
+real log file - so not a wrong path or a game-version-specific wording difference, the two most
+likely-looking explanations going in.
+
+The real cause: `watchLogFile` (`lib/serverProcess.ts`, real and unmodified by this PoC) only
+ever looks at content written *after* it starts watching - its first poll tick deliberately just
+records a size/inode baseline rather than checking existing content, so that re-opening an
+already-running server's Console tab doesn't re-match stale lines from a previous session
+(`startupLogWatch.test.ts`'s own "does not fire on content already in the file" case documents
+this on purpose). For `doStartServer`'s own use of this via `watchLogFileForMarker`, that's a
+real gap: if the entire startup log - marker line included - gets written before the very first
+poll tick ever runs, it's never "new" relative to that baseline, so it's never seen. More likely
+to actually trigger through this PoC's architecture than in the real app: `doStartServer` only
+starts watching after an extra IPC round trip (`invoke` → sidecar) that a direct same-process
+Electron call doesn't have, pushing the first watch tick later relative to when the server
+process (and its log) actually started.
+
+Fixed in the real, shared source, not worked around in the PoC: `watchLogFileForMarker` now also
+checks the log's current full content once, immediately, in parallel with the existing
+diff-based watch - but only trusts that eager check when the log file's own `mtime` is at or
+after a new `since` parameter (the same `startedAt` timestamp `doStartServer` already computes).
+That's what actually distinguishes "this session's own process already wrote the marker by the
+time we got here" from "that's a stale marker left over from the previous session, ARK just
+hasn't rotated/truncated the file yet" - content alone can't tell the two apart, but a
+fresh/restarted session's own first log write can only land at or after the moment that start
+was requested. `watchLogFileForMarker` has exactly one caller
+(`doStartServer`), so this didn't need to touch `watchLogFile` itself or any of its five other,
+unrelated callers (Console tab, player-connection watcher, Discord chat bridge, cluster log
+archive, web dashboard). Added a test for the new eager-match case and fixed the existing
+"stale content" test's own `since` to actually postdate its write (it previously relied on a
+parameter that didn't exist yet) - all eleven `startupLogWatch.test.ts` cases pass, along with
+the rest of the real app's 1359-test suite and a clean `tsc --noEmit`/`electron-vite build`.

@@ -39,22 +39,36 @@ describe('watchLogFileForMarker', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('does not fire on content already in the file before watching started', async () => {
+  it('does not fire on content already in the file before this session (since is after it was written)', async () => {
     fs.writeFileSync(logPath, `${MARKER}\n`)
+    const since = Date.now() + 50 // the file's mtime is before this, as if left over from a previous session
 
     let fired = false
-    const stop = watchLogFileForMarker(tmpDir, MARKER, () => (fired = true), 20)
+    const stop = watchLogFileForMarker(tmpDir, MARKER, () => (fired = true), since, 20)
     await wait(150)
     stop()
 
     expect(fired).toBe(false)
   })
 
+  it('fires immediately when the marker is already in the file as of this session (since is at/before it was written)', async () => {
+    const since = Date.now() - 1000 // comfortably before the write below, like a real startedAt would be
+    fs.writeFileSync(logPath, `${MARKER}\n`)
+
+    let fired = false
+    const stop = watchLogFileForMarker(tmpDir, MARKER, () => (fired = true), since, 20)
+    await wait(60)
+    stop()
+
+    expect(fired).toBe(true)
+  })
+
   it('fires once new content containing the marker is appended', async () => {
+    const since = Date.now()
     fs.writeFileSync(logPath, 'Loading map...\n')
 
     let fired = false
-    const stop = watchLogFileForMarker(tmpDir, MARKER, () => (fired = true), 20)
+    const stop = watchLogFileForMarker(tmpDir, MARKER, () => (fired = true), since, 20)
     await wait(60)
     fs.appendFileSync(logPath, `${MARKER}\n`)
     await wait(150)
@@ -64,10 +78,11 @@ describe('watchLogFileForMarker', () => {
   })
 
   it('does not fire while the marker is absent', async () => {
+    const since = Date.now()
     fs.writeFileSync(logPath, 'Loading map...\n')
 
     let fired = false
-    const stop = watchLogFileForMarker(tmpDir, MARKER, () => (fired = true), 20)
+    const stop = watchLogFileForMarker(tmpDir, MARKER, () => (fired = true), since, 20)
     await wait(60)
     fs.appendFileSync(logPath, 'still loading...\n')
     await wait(150)
@@ -77,8 +92,9 @@ describe('watchLogFileForMarker', () => {
   })
 
   it('handles the log file not existing yet when watching starts', async () => {
+    const since = Date.now()
     let fired = false
-    const stop = watchLogFileForMarker(tmpDir, MARKER, () => (fired = true), 20)
+    const stop = watchLogFileForMarker(tmpDir, MARKER, () => (fired = true), since, 20)
     await wait(60)
     fs.writeFileSync(logPath, 'starting up...\n')
     await wait(60)
@@ -90,10 +106,11 @@ describe('watchLogFileForMarker', () => {
   })
 
   it('stops polling once stop() is called', async () => {
+    const since = Date.now()
     fs.writeFileSync(logPath, 'Loading map...\n')
 
     let fired = false
-    const stop = watchLogFileForMarker(tmpDir, MARKER, () => (fired = true), 20)
+    const stop = watchLogFileForMarker(tmpDir, MARKER, () => (fired = true), since, 20)
     await wait(40)
     stop()
     fs.appendFileSync(logPath, `${MARKER}\n`)

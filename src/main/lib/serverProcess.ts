@@ -110,17 +110,49 @@ export function watchLogFile(
   }
 }
 
-/** Watches for `marker` to appear, firing onReady (at most once) the first time it does. */
+/** Watches for `marker` to appear, firing onReady (at most once) the first time it does.
+ *  `since` (epoch ms) is the moment this particular start was requested - see below. */
 export function watchLogFileForMarker(
   installDir: string,
   marker: string,
   onReady: () => void,
+  since: number,
   intervalMs = 2000
 ): () => void {
+  let fired = false
+  const fireOnce = (): void => {
+    if (fired) return
+    fired = true
+    onReady()
+  }
+
+  // Also checks the log's current full content once, immediately - not just content written
+  // after this starts watching. watchLogFile's own "baseline on the first poll tick, only diff
+  // after that" design exists so re-opening an already-running server's Console tab doesn't
+  // re-match stale lines from a previous session (see its own doc comment, and
+  // startupLogWatch.test.ts's "does not fire on content already in the file" case, which this
+  // must keep passing) - but it has a real gap for this specific caller: if the whole startup
+  // log, marker line included, gets written before the very first poll tick ever runs - more
+  // likely here than it sounds, since this is called after an extra IPC round trip (invoke ->
+  // sidecar) that doesn't exist in a direct same-process call - that content is never "new"
+  // relative to the diff-based watcher's baseline, so it's never seen.
+  //
+  // Only trusted if the log file's own mtime is at or after `since`: that's what actually
+  // distinguishes "this session already wrote the marker before we got here" from "that's a
+  // stale marker left over from the previous session, ARK just hasn't rotated/truncated the
+  // file yet" - content alone can't tell the two apart, but a restart's very next log write
+  // can only land at or after the moment this restart was requested.
+  fs.stat(getLogFilePath(installDir), (statErr, stats) => {
+    if (statErr || stats.mtimeMs < since) return
+    fs.readFile(getLogFilePath(installDir), 'utf-8', (readErr, content) => {
+      if (!readErr && content.includes(marker)) fireOnce()
+    })
+  })
+
   return watchLogFile(
     installDir,
     (chunk) => {
-      if (chunk.includes(marker)) onReady()
+      if (chunk.includes(marker)) fireOnce()
     },
     intervalMs
   )
@@ -755,7 +787,7 @@ function doSpawn(profile: ServerProfile, startedAt: number): ServerStatus {
   emitStatus(status)
 
   const fallback = setTimeout(() => markReady(), STARTUP_FALLBACK_MS)
-  const stopWatchingLog = watchLogFileForMarker(profile.installDir, STARTUP_COMPLETE_MARKER, () => markReady())
+  const stopWatchingLog = watchLogFileForMarker(profile.installDir, STARTUP_COMPLETE_MARKER, () => markReady(), startedAt)
   const stopBatchPidHandoff = launchViaBatch ? watchForBatchPidHandoff(profile.id, profile.rconPort, pid) : () => {}
 
   function markReady(): void {
