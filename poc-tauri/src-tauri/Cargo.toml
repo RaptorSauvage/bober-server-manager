@@ -11,13 +11,5 @@ tauri-plugin-shell = "2"
 tauri-plugin-opener = "2"
 rfd = "0.17"
 
-# Windows-only: suppresses the DWM-drawn accent-color border Windows 11 puts on a borderless
-# (decorations: false) window - see main.rs's own setup() comment for the real story. Matches
-# the same 0.62.2 the windows crate already resolves to transitively (via tauri-runtime-wry),
-# so the HWND type main.rs gets from tauri::Window::hwnd() is the same type DwmSetWindowAttribute
-# expects, not a second, incompatible copy of the same crate at a different version.
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Graphics_Dwm", "Win32_Foundation"] }
-
 [build-dependencies]
 tauri-build = { version = "2.7.4", features = [] }

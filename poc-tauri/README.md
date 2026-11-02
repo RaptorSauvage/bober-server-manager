@@ -3858,3 +3858,40 @@ real `windows` crate and `WindowEvent::Focused`'s real shape. Still the same hon
 before: a cross-target check cannot confirm this is the *complete* fix either, only that this
 specific documented gap is now closed - it needs the user's own rebuild to say whether the border
 is actually gone through a real focus change, not just at launch.
+
+## The border/gap, round four - wrong mechanism both times, not an incomplete fix
+
+"Toujours là" (still there) - unchanged, after the fix-twice-for-activation-state round shipped.
+Two straight rounds chasing `DWMWA_BORDER_COLOR` (Windows 11's accent-color window border) turned
+out to be the wrong target entirely, not an incompletely-applied right one. Re-reading tao's own
+source rather than reaching for another Microsoft API doc found it directly: tao's
+`WindowBuilderExtWindows`/`WindowExtWindows` has a dedicated, purpose-built
+`with_undecorated_shadow`/`set_undecorated_shadow`, whose own doc comment reads verbatim:
+*"Shows or hides the background drop shadow for undecorated windows. Enabling the shadow causes a
+thin 1px line to appear on the top of the window."* That is the exact symptom, in tao's own
+words, down to "top of the window" - a completely different Windows mechanism (an undecorated-
+window drop shadow effect) from the DWM accent border two rounds were spent on, and it's `true`
+by default (`decoration_shadow: true` in tao's own window defaults) for every window with
+`decorations: false`, which is every window this PoC or the real app ever creates.
+
+Better still, this isn't something to reach into raw `windows-rs`/DWM calls for at all - Tauri
+itself exposes it as an ordinary, cross-platform, declarative window option: `shadow` in
+`tauri.conf.json`'s window config (default `true`; `tauri-runtime-wry`'s own `WebviewWindowBuilder
+::shadow()` calls tao's `with_undecorated_shadow` on Windows and `NSWindow`'s `hasShadow` on
+macOS). Set `"shadow": false` on this PoC's one window and the two-round-old
+`suppress_dwm_border` function, its two call sites (`setup()` and the `Focused` handler), and the
+now-unused `windows` crate dependency this all required were removed outright rather than left
+in as unproven dead weight alongside the thing that actually works - the user asked, reasonably,
+for a rewrite rather than another patch a few rounds back for a different bug in this same file;
+this is that same standard applied here once the real mechanism was found.
+
+Verified the same way as the two rounds it replaces, now routine for anything Windows-only in
+this file: a plain `cargo build` stays a clean, unaffected no-op on this sandbox's native Linux
+target (confirmed with a fresh Xvfb smoke boot - `shadow` is a no-op outside Windows/macOS, same
+as `decorations` always has been here), and `cargo check --target x86_64-pc-windows-gnu`
+(mingw-w64 toolchain + the same disposable placeholder `binaries/*-pc-windows-gnu.exe` files,
+deleted right after, never committed) confirms the config actually deserializes into tauri's real
+`Config` struct and reaches the real `WebviewWindowBuilder` on the real target, not just that the
+JSON parses as JSON. Still can't confirm runtime behavior from here - no Windows machine, no DWM
+- so whether the line is actually gone this time is, again, something only the user's own rebuild
+can say.

@@ -1703,31 +1703,6 @@ fn handle_shell_request(app_handle: &tauri::AppHandle, method: &str, params: &Va
     }
 }
 
-/// Suppresses Windows 11's own DWM accent-color border for the given window - see the real
-/// report quoted in both call sites below. Microsoft's own DWMWA_BORDER_COLOR docs say the
-/// *app* is responsible for re-applying this on activation state changes, not DWM - setting it
-/// once at window creation only covers whatever activation state the window happened to be in
-/// at that moment. A real retest after the one-shot version confirmed exactly that gap: "c'est
-/// mieux" (better, not gone), with the window shown *unfocused* (a different window - Firefox,
-/// per that screenshot - had focus) in the follow-up report. So this is now called twice: once
-/// in setup() for the window's initial state, and again on every `WindowEvent::Focused` (both
-/// true and false, since the docs don't say which direction DWM actually reverts it on) rather
-/// than trusting a single call to survive every future focus change.
-#[cfg(windows)]
-fn suppress_dwm_border(hwnd: windows::Win32::Foundation::HWND) {
-    use windows::Win32::Foundation::COLORREF;
-    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_BORDER_COLOR};
-    let dwmwa_color_none = COLORREF(0xFFFFFFFE);
-    let _ = unsafe {
-        DwmSetWindowAttribute(
-            hwnd,
-            DWMWA_BORDER_COLOR,
-            &dwmwa_color_none as *const _ as *const std::ffi::c_void,
-            std::mem::size_of::<COLORREF>() as u32,
-        )
-    };
-}
-
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -1736,23 +1711,6 @@ fn main() {
             let handle = spawn_sidecar(app);
             app.manage(handle);
             app.manage(MaximizeState(Mutex::new(None)));
-
-            // A real report: "une ligne bleue autour de la fenêtre" (plus a "gap" on one
-            // edge - the same border, just more visible there against the taskbar/desktop
-            // behind it). This is Windows 11 drawing its own thin accent-colored border
-            // around any top-level window once it's focused - a DWM behavior independent of
-            // this window's own decorations(false), confirmed on Windows 11 Build 22000+
-            // (see Microsoft's own DWMWA_BORDER_COLOR docs). See suppress_dwm_border's own
-            // comment for why this call alone - once, here, right after the window exists -
-            // turned out to be an incomplete fix on a real retest ("c'est mieux" - better,
-            // not gone - with the window shown unfocused in the follow-up screenshot).
-            #[cfg(windows)]
-            if let Some(window) = app.get_webview_window("main") {
-                if let Ok(hwnd) = window.hwnd() {
-                    suppress_dwm_border(hwnd);
-                }
-            }
-
             Ok(())
         })
         // A real report, see window_toggle_maximize's own doc comment for the full story: a
@@ -1765,18 +1723,6 @@ fn main() {
         // to the top of the screen, etc. - which still goes through the real native path this
         // PoC's own command bypasses.
         .on_window_event(|window, event| {
-            // suppress_dwm_border's own comment has the full story: Microsoft's docs say the
-            // app must re-apply DWMWA_BORDER_COLOR on activation changes, not just once at
-            // startup - a real retest after the one-shot version confirmed that gap directly
-            // ("c'est mieux", not gone, window shown unfocused). Re-applied on every focus
-            // change, gained or lost, rather than guessing which direction it actually reverts.
-            #[cfg(windows)]
-            if matches!(event, tauri::WindowEvent::Focused(_)) {
-                if let Ok(hwnd) = window.hwnd() {
-                    suppress_dwm_border(hwnd);
-                }
-            }
-
             if !matches!(event, tauri::WindowEvent::Resized(_)) {
                 return;
             }
