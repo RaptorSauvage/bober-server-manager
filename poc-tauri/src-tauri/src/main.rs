@@ -29,7 +29,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use tauri::{Emitter, Manager};
-use tauri_plugin_dialog::DialogExt;
+use rfd::FileDialog;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
@@ -185,12 +185,10 @@ fn profiles_move(
 /// plugin invoked straight from Rust, same shape as the real app's architecture, not a sidecar
 /// RPC call standing in for something it never was.
 #[tauri::command]
-fn dialog_select_directory(app_handle: tauri::AppHandle) -> Option<String> {
-    app_handle
-        .dialog()
-        .file()
-        .blocking_pick_folder()
-        .map(|p| p.to_string())
+fn dialog_select_directory() -> Option<String> {
+    FileDialog::new()
+        .pick_folder()
+        .map(|p| p.to_string_lossy().to_string())
 }
 
 /// The real forceRefocus() (lib/windowFocus.ts) sequence - factored out so
@@ -230,26 +228,22 @@ fn window_focus(app_handle: tauri::AppHandle) -> Result<(), String> {
 /// involvement, since the real dialog.ts is a main-process/window-level concern in Electron
 /// too.
 #[tauri::command]
-fn dialog_select_file(app_handle: tauri::AppHandle) -> Option<String> {
-    app_handle
-        .dialog()
-        .file()
-        .blocking_pick_file()
-        .map(|p| p.to_string())
+fn dialog_select_file() -> Option<String> {
+    FileDialog::new()
+        .pick_file()
+        .map(|p| p.to_string_lossy().to_string())
 }
 
 /// Backs IniTemplatesView.tsx's "Import from file..." buttons (window.api.dialog.selectIniFile)
 /// - same architectural class as dialog_select_file, with a real .ini filter matching the real
 /// dialog.ts's own showOpenDialog filters.
 #[tauri::command]
-fn dialog_select_ini_file(app_handle: tauri::AppHandle) -> Option<String> {
-    app_handle
-        .dialog()
-        .file()
+fn dialog_select_ini_file() -> Option<String> {
+    FileDialog::new()
         .add_filter("INI files", &["ini"])
         .add_filter("All files", &["*"])
-        .blocking_pick_file()
-        .map(|p| p.to_string())
+        .pick_file()
+        .map(|p| p.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -262,14 +256,12 @@ fn player_roster_list(profile_id: String, sidecar: tauri::State<SidecarHandle>) 
 /// sidecar involvement), but a save dialog rather than a pick dialog, matching the real
 /// dialog.ts's own showSaveDialog call with a suggested default filename.
 #[tauri::command]
-fn dialog_save_profile_file(default_name: String, app_handle: tauri::AppHandle) -> Option<String> {
-    app_handle
-        .dialog()
-        .file()
+fn dialog_save_profile_file(default_name: String) -> Option<String> {
+    FileDialog::new()
         .set_file_name(&format!("{}.json", default_name))
         .add_filter("JSON", &["json"])
-        .blocking_save_file()
-        .map(|p| p.to_string())
+        .save_file()
+        .map(|p| p.to_string_lossy().to_string())
 }
 
 /// Backs DataSettingsView.tsx's "Export cluster backup" button (window.api.dialog.
@@ -280,27 +272,23 @@ fn dialog_save_profile_file(default_name: String, app_handle: tauri::AppHandle) 
 /// PoC cares about (a real native save dialog reachable from the sidecar-free command class)
 /// is unaffected either way.
 #[tauri::command]
-fn dialog_save_cluster_bundle_file(app_handle: tauri::AppHandle) -> Option<String> {
-    app_handle
-        .dialog()
-        .file()
+fn dialog_save_cluster_bundle_file() -> Option<String> {
+    FileDialog::new()
         .set_file_name("bober-cluster-backup.json")
         .add_filter("JSON", &["json"])
-        .blocking_save_file()
-        .map(|p| p.to_string())
+        .save_file()
+        .map(|p| p.to_string_lossy().to_string())
 }
 
 /// Backs DataSettingsView.tsx's "Import cluster backup" button
 /// (window.api.dialog.selectClusterBundleFile) - a seventh sidecar-free native dialog, same
 /// architectural class as dialog_select_file/dialog_select_ini_file.
 #[tauri::command]
-fn dialog_select_cluster_bundle_file(app_handle: tauri::AppHandle) -> Option<String> {
-    app_handle
-        .dialog()
-        .file()
+fn dialog_select_cluster_bundle_file() -> Option<String> {
+    FileDialog::new()
         .add_filter("JSON", &["json"])
-        .blocking_pick_file()
-        .map(|p| p.to_string())
+        .pick_file()
+        .map(|p| p.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -1438,7 +1426,6 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let handle = spawn_sidecar(app);
             app.manage(handle);

@@ -2473,6 +2473,44 @@ logic through this Rust/Tauri + Node-sidecar architecture, including the two act
 cases (ARK's own real spawned-process lifecycle, proven earlier, and this round's Minecraft
 equivalent) that the whole exploration set out to answer.
 
+### Closing the confirmAction()/window.confirm() bug for real, not just documenting it
+
+Every "What this doesn't prove yet" entry above was something this sandbox structurally can't
+reach - a real desktop session, a real credential, a real game binary. The confirm() bug wasn't
+one of those: it was a genuine, fixable bug in how this PoC wired up Tauri's dialog plugin, so
+once asked to actually close out the PoC's own remaining scope (rather than just the 36 pages),
+this was the one item worth fixing for real instead of filing away.
+
+Root cause, precisely: `tauri-plugin-dialog` doesn't just expose a `dialog.confirm()` API for
+code that opts in - registering it at all (`.plugin(tauri_plugin_dialog::init())`) makes the
+plugin inject a script into *every* webview that unconditionally overwrites `window.confirm`,
+`window.alert`, and `window.prompt` with async, Promise-returning versions, regardless of
+whether any frontend code ever imports the plugin's JS API. That override is what broke
+`confirmAction()`'s synchronous contract - no amount of granting `dialog:allow-confirm` would
+have fixed it, since even a successfully-resolving `window.confirm()` would still return a
+`Promise`, not a `boolean`, to code written assuming the real browser/Electron contract.
+
+The fix: stop using `tauri-plugin-dialog` at all. The six `dialog_select_*`/`dialog_save_*`
+commands only ever needed `rfd` (`tauri-plugin-dialog` is itself a thin wrapper around `rfd`
+internally) - switching them to call `rfd::FileDialog` directly, and dropping the
+`tauri-plugin-dialog` dependency and its `.plugin(...)` registration entirely, removes the
+injected script with it. `window.confirm()`/`window.alert()`/`window.prompt()` go back to being
+whatever WebKitGTK's (or WebView2's) own native implementation does - a real, synchronous,
+blocking OS dialog, the same contract Electron's `window.confirm()` already has, with zero
+changes needed to `confirmAction()` or any other real file.
+
+Confirmed two ways through the real compiled app, not just by reading the diff: typing
+`typeof window.confirm('test-sync-confirm')` into devtools now pops a real native "JavaScript -
+tauri://localhost" dialog with Cancel/OK buttons (not an instant rejected Promise), and the
+expression only resolves - to the real string `"boolean"` - after that dialog is actually
+dismissed. Then, against `WatchedPlayersSection.tsx` (unmodified, the same real
+`confirmAction()`-gated `handleRemove` every destructive button in this PoC shares): clicking
+"Remove" on a real tracked entry now pops the real "Stop watching "TestPlayer123"?" dialog;
+clicking **Cancel** left the entry genuinely untouched in the list (the exact case that
+silently failed before - the whole point of the original bug); clicking **Remove** again and
+then **OK** genuinely deleted it. Both the "cancel actually cancels" and "confirm still works"
+halves of the real contract are now proven, not just the second one.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2574,18 +2612,23 @@ equivalent) that the whole exploration set out to answer.
   until the process was killed - confirmed by typing into an unrelated, already-focused text
   field immediately after clicking "Export profile..." and observing no character landed, where
   the same action worked before the click. See "A twenty-fourth real page" above.
-- **A third, worse-than-either native-dialog failure mode: `window.confirm()` doesn't freeze and
-  doesn't error - it silently never blocks anything at all.** Unlike the pick/save dialogs above,
-  Tauri's dialog plugin replaces `window.confirm()` with an async function returning a `Promise`
-  that immediately rejects (this PoC's `capabilities/default.json` never granted
+- **~~A third, worse-than-either native-dialog failure mode: `window.confirm()` doesn't freeze
+  and doesn't error - it silently never blocks anything at all~~ - found, root-caused, and then
+  genuinely fixed, not just documented.** Unlike the pick/save dialogs above, `tauri-plugin-
+  dialog`'s injected script replaces `window.confirm()` with an async function returning a
+  `Promise` that immediately rejects (this PoC's `capabilities/default.json` never granted
   `dialog:allow-confirm`). Every real `confirmAction()` call site (`lib/confirmAction.ts`, used
   by every destructive-action button across both ARK's and Minecraft's pages, not just this
   round's) calls it synchronously and checks the return value truthily - a `Promise` object is
-  truthy, so the `if (!confirmAction(...)) return` guard these buttons all share never fires,
-  and the destructive action proceeds exactly as if the user had confirmed, with nothing in the
+  truthy, so the `if (!confirmAction(...)) return` guard these buttons all share never fired,
+  and the destructive action proceeded exactly as if the user had confirmed, with nothing in the
   UI suggesting anything went differently than normal. Confirmed by modifying a real file on
   disk, clicking "Restore selected backup" with no visible dialog, and watching the file revert
-  anyway. See "A thirty-second real page" below for the full root-cause trace.
+  anyway - see "A thirty-second real page" below for the full root-cause trace. **Fixed** by
+  dropping `tauri-plugin-dialog` entirely (its injected script is what overwrites `window.confirm`
+  unconditionally, independent of any permission grant) and calling `rfd` directly from the six
+  native-dialog commands instead - see "Closing the confirmAction()/window.confirm() bug for
+  real" above for the fix and its own real-dialog, real-Cancel, real-OK confirmation.
 
 ## What this doesn't prove yet
 
@@ -2855,9 +2898,10 @@ equivalent) that the whole exploration set out to answer.
   call, then confirmed through the real compiled app with a future-dated event correctly staying
   "Scheduled" and leaving those same real profiles untouched. First page needing a real native
   `<input type="datetime-local">` and a modal dialog, both proven with zero new sidecar wiring.
-  Still unconfirmed: the real `Delete Event` button's `window.confirm()` round trip (same
-  already-documented category of gap as the native file/folder pickers - a human click a headless
-  Xvfb session can't provide), and the `shutdownOnStart`/`shutdownOnEnd` real stop-then-start
+  The real `Delete Event` button's own `window.confirm()` round trip specifically wasn't
+  re-clicked, but the underlying bug it would have hit is now fixed project-wide - see "Closing
+  the confirmAction()/window.confirm() bug for real" above, confirmed on a different real
+  `confirmAction()` button. Still unconfirmed: the `shutdownOnStart`/`shutdownOnEnd` real stop-then-start
   cycle specifically from this subsystem (the underlying `startServer`/`stopServer` calls
   themselves are already proven elsewhere in this PoC, just not triggered from this code path).
 - **~~Nothing about a second real file-backed persistence path, independent of
@@ -2869,8 +2913,9 @@ equivalent) that the whole exploration set out to answer.
   zero Electron coupling too. A real add and a real edit through the real compiled app each
   produced a real write to the real `~/Documents/ARK Server Manager/customMaps.json` on disk,
   independently re-confirming `getDataDir()`'s own real path for a second subsystem (the first
-  being `lib/managerLog.ts`, see "Findings" above). Still unconfirmed: the real `Delete` button's
-  `window.confirm()` round trip, same already-documented gap as `EventSchedulerView`'s own.
+  being `lib/managerLog.ts`, see "Findings" above). The real `Delete` button's own
+  `window.confirm()` round trip specifically wasn't re-clicked, same as `EventSchedulerView`'s
+  own - but see the confirm() bug fix above for why it's no longer expected to silently fail.
 - **~~Nothing about writing directly into a real GameUserSettings.ini/Game.ini~~ - proven, a
   twenty-first real page.** See "A twenty-first real page" above: `IniTemplatesView.tsx`'s real
   `applyIniTemplate()`/`applyIniTemplateToAll()` (`lib/iniTemplates.ts`) surgically update an
@@ -2988,7 +3033,7 @@ equivalent) that the whole exploration set out to answer.
   `confirmAction()`-gated destructive action in this entire PoC (not just this round's) has been
   silently skipping its own confirmation since the first round that used one, because Tauri's
   dialog plugin breaks `window.confirm()`'s synchronous contract - see the dedicated Findings
-  bullet above. Still unconfirmed: `ModsTab.tsx`, `ServerSettingsTab.tsx`, `index.tsx` (the tab
+  bullet above, now marked fixed. Still unconfirmed: `ModsTab.tsx`, `ServerSettingsTab.tsx`, `index.tsx` (the tab
   shell itself, which needs both of those first) and `MinecraftDashboard.tsx`.
 - **~~Nothing about the server.properties editor~~ - proven, a thirty-third real page.** See
   "A thirty-third real page" above: every field type (text/checkbox/select) correctly read and
