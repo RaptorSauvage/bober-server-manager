@@ -1703,6 +1703,31 @@ fn handle_shell_request(app_handle: &tauri::AppHandle, method: &str, params: &Va
     }
 }
 
+/// Suppresses Windows 11's own DWM accent-color border for the given window - see the real
+/// report quoted in both call sites below. Microsoft's own DWMWA_BORDER_COLOR docs say the
+/// *app* is responsible for re-applying this on activation state changes, not DWM - setting it
+/// once at window creation only covers whatever activation state the window happened to be in
+/// at that moment. A real retest after the one-shot version confirmed exactly that gap: "c'est
+/// mieux" (better, not gone), with the window shown *unfocused* (a different window - Firefox,
+/// per that screenshot - had focus) in the follow-up report. So this is now called twice: once
+/// in setup() for the window's initial state, and again on every `WindowEvent::Focused` (both
+/// true and false, since the docs don't say which direction DWM actually reverts it on) rather
+/// than trusting a single call to survive every future focus change.
+#[cfg(windows)]
+fn suppress_dwm_border(hwnd: windows::Win32::Foundation::HWND) {
+    use windows::Win32::Foundation::COLORREF;
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_BORDER_COLOR};
+    let dwmwa_color_none = COLORREF(0xFFFFFFFE);
+    let _ = unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_BORDER_COLOR,
+            &dwmwa_color_none as *const _ as *const std::ffi::c_void,
+            std::mem::size_of::<COLORREF>() as u32,
+        )
+    };
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -1717,34 +1742,14 @@ fn main() {
             // behind it). This is Windows 11 drawing its own thin accent-colored border
             // around any top-level window once it's focused - a DWM behavior independent of
             // this window's own decorations(false), confirmed on Windows 11 Build 22000+
-            // (see Microsoft's own DWMWA_BORDER_COLOR docs). The documented suppression:
-            // DwmSetWindowAttribute(DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE), set once here
-            // right after the window exists.
-            //
-            // Unverified beyond compiling, and said plainly rather than glossed over after
-            // two earlier "should work" fixes in this file already turned out wrong on a
-            // real rebuild: windows-rs and DWM are Windows-only, so neither this binary
-            // (built native-Linux for every earlier round's own Xvfb testing) nor a default
-            // `cargo check` can touch this code at all - checked instead with `cargo check
-            // --target x86_64-pc-windows-gnu`, which needs neither a Windows machine nor a
-            // linker, only confirms the types line up. Real activation-time behavior still
-            // needs the user's own machine to confirm.
+            // (see Microsoft's own DWMWA_BORDER_COLOR docs). See suppress_dwm_border's own
+            // comment for why this call alone - once, here, right after the window exists -
+            // turned out to be an incomplete fix on a real retest ("c'est mieux" - better,
+            // not gone - with the window shown unfocused in the follow-up screenshot).
             #[cfg(windows)]
-            {
-                use windows::Win32::Foundation::COLORREF;
-                use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_BORDER_COLOR};
-                if let Some(window) = app.get_webview_window("main") {
-                    if let Ok(hwnd) = window.hwnd() {
-                        let dwmwa_color_none = COLORREF(0xFFFFFFFE);
-                        let _ = unsafe {
-                            DwmSetWindowAttribute(
-                                hwnd,
-                                DWMWA_BORDER_COLOR,
-                                &dwmwa_color_none as *const _ as *const std::ffi::c_void,
-                                std::mem::size_of::<COLORREF>() as u32,
-                            )
-                        };
-                    }
+            if let Some(window) = app.get_webview_window("main") {
+                if let Ok(hwnd) = window.hwnd() {
+                    suppress_dwm_border(hwnd);
                 }
             }
 
@@ -1760,6 +1765,18 @@ fn main() {
         // to the top of the screen, etc. - which still goes through the real native path this
         // PoC's own command bypasses.
         .on_window_event(|window, event| {
+            // suppress_dwm_border's own comment has the full story: Microsoft's docs say the
+            // app must re-apply DWMWA_BORDER_COLOR on activation changes, not just once at
+            // startup - a real retest after the one-shot version confirmed that gap directly
+            // ("c'est mieux", not gone, window shown unfocused). Re-applied on every focus
+            // change, gained or lost, rather than guessing which direction it actually reverts.
+            #[cfg(windows)]
+            if matches!(event, tauri::WindowEvent::Focused(_)) {
+                if let Ok(hwnd) = window.hwnd() {
+                    suppress_dwm_border(hwnd);
+                }
+            }
+
             if !matches!(event, tauri::WindowEvent::Resized(_)) {
                 return;
             }

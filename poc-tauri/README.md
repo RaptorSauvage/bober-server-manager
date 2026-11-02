@@ -3834,3 +3834,27 @@ by a normal `cargo build` and fresh Xvfb smoke boot afterward, unchanged. What a
 gone, whether it needs to be reapplied on focus-change events (one source found while researching
 this suggested it can revert), is still something only a real rebuild on the user's own Windows
 11 machine can answer.
+
+## The DWM border, continued - "c'est mieux" meant the caveat above was the real gap
+
+The exact caveat the previous round flagged and couldn't verify turned out to be the real gap:
+"c'est mieux" (better, not gone) - still a border at the top, still the same "gap" on the left -
+with the follow-up screenshot showing the window *unfocused* (a different window had focus).
+Microsoft's own `DWMWA_BORDER_COLOR` docs, quoted in that round's own README section, say exactly
+why: *"The app is responsible for changing the border color according to state changes, such as
+a change in window activation."* Setting it once at window creation only covers whatever
+activation state the window happened to be in at that moment - it was never going to survive the
+window losing and regaining focus, because DWM was never told to keep honoring it across that
+transition.
+
+Extracted the DWM call into its own `suppress_dwm_border(hwnd)` and now call it twice: once in
+`setup()` as before, and again on every `WindowEvent::Focused` (both directions - gained and
+lost, since nothing in the docs says which way it actually reverts, so reapplying on both avoids
+having to guess). Same verification discipline as the fix it extends: native `cargo build` stays
+a clean no-op (still `#[cfg(windows)]`-gated, confirmed via a fresh Xvfb smoke boot), and `cargo
+check --target x86_64-pc-windows-gnu` (placeholder `binaries/*-pc-windows-gnu.exe` files created
+only for the check and deleted immediately after, never committed) type-checks clean against the
+real `windows` crate and `WindowEvent::Focused`'s real shape. Still the same honest limit as
+before: a cross-target check cannot confirm this is the *complete* fix either, only that this
+specific documented gap is now closed - it needs the user's own rebuild to say whether the border
+is actually gone through a real focus change, not just at launch.
