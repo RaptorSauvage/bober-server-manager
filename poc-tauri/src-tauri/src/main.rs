@@ -1119,6 +1119,78 @@ fn minecraft_properties_save(profile_id: String, updates: Value, sidecar: tauri:
     )
 }
 
+/// Backs MinecraftServerDetail/ModsTab.tsx - a thirty-fourth real page.
+#[tauri::command]
+fn minecraft_mods_search(profile_id: String, query: String, ecosystem: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call(
+        "minecraft.mods.search",
+        Some(serde_json::json!({ "profileId": profile_id, "query": query, "ecosystem": ecosystem }))
+    )
+}
+
+#[tauri::command]
+fn minecraft_mods_install(
+    profile_id: String,
+    source: String,
+    project_id: String,
+    ecosystem: String,
+    sidecar: tauri::State<SidecarHandle>
+) -> Result<Value, String> {
+    sidecar.call(
+        "minecraft.mods.install",
+        Some(serde_json::json!({ "profileId": profile_id, "source": source, "projectId": project_id, "ecosystem": ecosystem }))
+    )
+}
+
+#[tauri::command]
+fn minecraft_mods_remove(profile_id: String, project_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call(
+        "minecraft.mods.remove",
+        Some(serde_json::json!({ "profileId": profile_id, "projectId": project_id }))
+    )
+}
+
+#[tauri::command]
+fn minecraft_mods_set_enabled(
+    profile_id: String,
+    project_id: String,
+    enabled: bool,
+    sidecar: tauri::State<SidecarHandle>
+) -> Result<Value, String> {
+    sidecar.call(
+        "minecraft.mods.setEnabled",
+        Some(serde_json::json!({ "profileId": profile_id, "projectId": project_id, "enabled": enabled }))
+    )
+}
+
+#[tauri::command]
+fn minecraft_mods_check_updates(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.mods.checkUpdates", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+#[tauri::command]
+fn minecraft_mods_update(
+    profile_id: String,
+    source: String,
+    project_id: String,
+    sidecar: tauri::State<SidecarHandle>
+) -> Result<Value, String> {
+    sidecar.call(
+        "minecraft.mods.update",
+        Some(serde_json::json!({ "profileId": profile_id, "source": source, "projectId": project_id }))
+    )
+}
+
+#[tauri::command]
+fn minecraft_mods_scan(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.mods.scan", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+#[tauri::command]
+fn minecraft_mods_open_folder(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.mods.openFolder", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
 /// Test-only - see sidecar.ts's `server.installTestExecutable` comment.
 #[tauri::command]
 fn server_install_test_executable(
@@ -1500,7 +1572,15 @@ fn main() {
             minecraft_backup_open_folder,
             minecraft_open_server_folder,
             minecraft_properties_get,
-            minecraft_properties_save
+            minecraft_properties_save,
+            minecraft_mods_search,
+            minecraft_mods_install,
+            minecraft_mods_remove,
+            minecraft_mods_set_enabled,
+            minecraft_mods_check_updates,
+            minecraft_mods_update,
+            minecraft_mods_scan,
+            minecraft_mods_open_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

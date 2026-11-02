@@ -179,6 +179,17 @@ import {
   openMinecraftServerRootFolder
 } from '../../src/main/lib/minecraftBackup'
 import { readServerProperties, upsertServerPropertiesKeys } from '../../src/main/lib/minecraftProperties'
+import {
+  searchMinecraftMods,
+  installMinecraftMod,
+  removeMinecraftMod,
+  setMinecraftModEnabled,
+  checkMinecraftModUpdates,
+  updateMinecraftMod,
+  scanForInstalledMods,
+  openMinecraftModsFolder
+} from '../../src/main/lib/minecraftMods'
+import type { MinecraftModSource, MinecraftModEcosystem } from '../../shared/minecraftMods'
 import { app, shell } from 'electron'
 import { send, resolveRustResponse } from './rpcToRust'
 import type { GameId } from '../../shared/games'
@@ -1347,6 +1358,61 @@ const methods: Record<string, (params: unknown) => unknown> = {
     if (!profile) throw new Error(`Unknown Minecraft profile: ${profileId}`)
     upsertServerPropertiesKeys(profile.installDir, updates)
     return readServerProperties(profile.installDir)
+  },
+  // Real, unmodified lib/minecraftMods.ts - backs MinecraftServerDetail/ModsTab.tsx, a
+  // thirty-fourth real page. Mirrors ipc/minecraftMods.ts's own requireProfile() shape exactly.
+  // search/install/update are real Modrinth/CurseForge network calls - same honest "fetch
+  // failed" category as "A twenty-seventh real page"'s minecraft.install.* methods.
+  'minecraft.mods.search': (params) => {
+    const { profileId, query, ecosystem } = params as { profileId: string; query: string; ecosystem: MinecraftModEcosystem }
+    const profile = getMinecraftProfile(profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${profileId}`)
+    return searchMinecraftMods(profile, query, ecosystem)
+  },
+  'minecraft.mods.install': (params) => {
+    const { profileId, source, projectId, ecosystem } = params as {
+      profileId: string
+      source: MinecraftModSource
+      projectId: string
+      ecosystem: MinecraftModEcosystem
+    }
+    const profile = getMinecraftProfile(profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${profileId}`)
+    return installMinecraftMod(profile, source, projectId, ecosystem)
+  },
+  'minecraft.mods.remove': (params) => {
+    const { profileId, projectId } = params as { profileId: string; projectId: string }
+    const profile = getMinecraftProfile(profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${profileId}`)
+    return removeMinecraftMod(profile, projectId)
+  },
+  'minecraft.mods.setEnabled': (params) => {
+    const { profileId, projectId, enabled } = params as { profileId: string; projectId: string; enabled: boolean }
+    const profile = getMinecraftProfile(profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${profileId}`)
+    return setMinecraftModEnabled(profile, projectId, enabled)
+  },
+  'minecraft.mods.checkUpdates': (params) => {
+    const profile = getMinecraftProfile((params as { profileId: string }).profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${(params as { profileId: string }).profileId}`)
+    return checkMinecraftModUpdates(profile)
+  },
+  'minecraft.mods.update': (params) => {
+    const { profileId, source, projectId } = params as { profileId: string; source: MinecraftModSource; projectId: string }
+    const profile = getMinecraftProfile(profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${profileId}`)
+    return updateMinecraftMod(profile, source, projectId)
+  },
+  'minecraft.mods.scan': (params) => {
+    const profile = getMinecraftProfile((params as { profileId: string }).profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${(params as { profileId: string }).profileId}`)
+    return scanForInstalledMods(profile)
+  },
+  'minecraft.mods.openFolder': async (params) => {
+    const profile = getMinecraftProfile((params as { profileId: string }).profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${(params as { profileId: string }).profileId}`)
+    await openMinecraftModsFolder(profile)
+    return { ok: true }
   }
 }
 

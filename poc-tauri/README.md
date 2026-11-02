@@ -121,7 +121,11 @@ straight to Valve's own CDN - and hit a real, honest network failure in this san
   `minecraft_backup_open_folder` - one hundred and forty-seven Tauri commands total. The
   thirty-third (see "A thirty-third real page" below) added `minecraft_open_server_folder`/
   `minecraft_properties_get`/`minecraft_properties_save` - one hundred and fifty Tauri commands
-  total.
+  total. The thirty-fourth (see "A thirty-fourth real page" below) added
+  `minecraft_mods_search`/`minecraft_mods_install`/`minecraft_mods_remove`/
+  `minecraft_mods_set_enabled`/`minecraft_mods_check_updates`/`minecraft_mods_update`/
+  `minecraft_mods_scan`/`minecraft_mods_open_folder` - one hundred and fifty-eight Tauri
+  commands total.
 - `sidecar/sidecar.ts` - a newline-delimited-JSON RPC server over stdin/stdout. Imports
   `listProfiles`/`saveProfile`/`profileEvents` from **the real, untouched `src/main/store.ts`**,
   `logManagerEvent`/`managerLogEvents` from **the real, untouched
@@ -2355,6 +2359,48 @@ the same honest `shell.openPath`/`gio` failure as "A thirty-second real page", c
 property of the sandbox (no real desktop file manager), not of either specific real function
 that calls it. No new bug.
 
+### A thirty-fourth real page: Modrinth/CurseForge mod management, and a harness bug that looked like a Tauri bug
+
+`MinecraftServerDetail/ModsTab.tsx` - the largest Minecraft-side tab yet (460 lines), backed by
+the real, unmodified `lib/minecraftMods.ts` (1187 lines: Modrinth/CurseForge search, install,
+update, and hash-based folder scanning). Reuses the already-proven `window.api.settings.get()`
+(the CurseForge-API-key gate) and `confirmAction()`, plus the established `.png`/`.jpg` ->
+`dataurl` asset-loader pattern for the real Modrinth/CurseForge source-logo PNGs and per-loader
+server-type icons.
+
+**Confirmed standalone:** against a real `mods/` folder containing a real (fake-content) jar,
+`minecraft.mods.scan` and `minecraft.mods.search` both hit the same honest "fetch failed" this
+sandbox produces for every real network call (Modrinth's hash-lookup and search APIs) -
+`scanForInstalledMods()` needs network access even just to *identify* an untracked file, not
+only to install one. The purely offline operations - `setEnabled` (renames
+`<file>.jar` <-> `<file>.jar.disabled` on disk) and `remove` (deletes the file) - both round-
+tripped correctly against a real pre-tracked entry with no network involved at all.
+
+**Confirmed through the real compiled app:** the real, unmodified `ModsTab.tsx` rendered the
+pre-tracked mod correctly (title, "Unidentified" status, Disable/Remove buttons). Search
+produced the same honest "fetch failed", visibly surfaced through the component's own
+`error-message` paragraph. "Open folder" hit the same `shell.openPath`/`gio` failure as the
+backup/server-settings folders - a third different real function confirming the same sandbox
+limitation. Disable correctly renamed the real file on disk and the button flipped to "Enable",
+reflecting the real returned profile.
+
+**A debugging detour worth recording, since it could be mistaken for a new Tauri-shim finding:**
+clicking "Remove" first appeared to silently do nothing - no file deleted, no visible error. This
+was *not* a repeat of "A thirty-second real page"'s `confirmAction()`/`window.confirm()` bug:
+devtools showed a second, different unhandled rejection underneath the familiar `dialog.message
+not allowed` one - `TypeError: undefined is not an object (evaluating
+'window.api.system.focusWindow')`, thrown from inside `confirmAction()` itself
+(`lib/confirmAction.ts` calls `window.api.system.focusWindow()` unconditionally after
+`window.confirm()`). This entry file's own `window.api` declaration had simply omitted
+`system.focusWindow` - a real, already-proven call this PoC's own harness forgot to wire up for
+this one page, not a defect in the real app. Fixed by adding it (reusing the already-proven
+`window_focus` Rust command, as other entries already do); "Remove" then worked exactly like "A
+thirty-second real page"'s "Restore" - the file was deleted with no visible confirmation
+dialog, the same `confirmAction()` bug, now reproduced a second time on a second real page. A
+good reminder that an entry wrapper's own `window.api` surface is itself something to get
+wrong, and that devtools' full list of unhandled rejections - not just the first one - is worth
+reading before concluding what broke.
+
 ## Findings from actually running this, not from reading docs
 
 - **Tauri event names reject dots.** `app.emit("profiles.changed", ...)` fails at runtime with
@@ -2877,6 +2923,14 @@ that calls it. No new bug.
   wrote the real file in place, preserving comments and untouched keys, confirmed by re-reading
   the real file from disk after each edit. Still unconfirmed: `ModsTab.tsx`, `index.tsx` (the
   tab shell, which needs `ModsTab.tsx` to compose fully) and `MinecraftDashboard.tsx`.
+- **~~Nothing about Modrinth/CurseForge mod management~~ - proven, a thirty-fourth real page.**
+  See "A thirty-fourth real page" above: scan/search hit the same honest "fetch failed" every
+  other real network call in this sandbox does (confirmed standalone and through the compiled
+  app), while the purely offline operations (enable/disable, remove) round-tripped correctly
+  against a real file on disk - including a second real reproduction of "A thirty-second real
+  page"'s `confirmAction()` bug, this time on the Remove button. All six `MinecraftServerDetail/`
+  tabs are now individually proven - only `index.tsx` (the tab-shell composition itself, now
+  unblocked) and `MinecraftDashboard.tsx` remain unported.
 
 ## Where the real Electron coupling lives
 
