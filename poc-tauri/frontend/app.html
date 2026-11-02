@@ -4,37 +4,38 @@
     <meta charset="UTF-8" />
     <title>App shell - real App.tsx through Tauri</title>
     <link rel="stylesheet" href="app-styles.css" />
-    <style>
-      /* PoC-only: a way back to this PoC's own demo landing page (index.html). Deliberately
-         NOT added inside App.tsx/TitleBar.tsx (real, unmodified source) - sits just below the
-         real title bar's 40px row instead, as a plain DOM element outside the React tree. */
-      #poc-back-to-index {
-        position: fixed;
-        top: 44px;
-        left: 6px;
-        z-index: 9999;
-        background: #1d2027;
-        border: 1px solid #2c303a;
-        color: #9aa0ab;
-        border-radius: 6px;
-        padding: 3px 8px;
-        font: 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        cursor: pointer;
-      }
-      #poc-back-to-index:hover {
-        border-color: #4f8cff;
-        color: #e6e8ec;
-      }
-    </style>
   </head>
   <body>
-    <button id="poc-back-to-index" type="button" title="Back to this PoC's demo landing page">&larr; PoC index</button>
     <div id="root"></div>
     <script type="module" src="app.js"></script>
     <script type="module">
-      document.getElementById('poc-back-to-index').addEventListener('click', () => {
-        window.location.href = 'index.html'
-      })
+      // PoC-only: a way back to this PoC's own demo landing page (index.html), placed inside
+      // the real Tools menu rather than as a standalone button. Deliberately NOT done by editing
+      // TitleBar.tsx (real, unmodified source - the real app has no index.html to go back to, so
+      // this has no real-app equivalent at all) - instead, a MutationObserver watches for the
+      // real `.title-bar-dropdown` React mounts each time the real "Tools" button is clicked
+      // (it only exists in the DOM while that menu is open - see TitleBar.tsx's own
+      // `{openMenu === 'tools' && (...)}`) and appends one extra button to it, styled by the
+      // exact same real app-styles.css rules the dropdown's own real buttons already use.
+      // Re-injects every time the dropdown reopens, since React unmounts (and so removes our
+      // appended node with it) every time it closes.
+      new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          for (const node of mutation.addedNodes) {
+            if (!(node instanceof HTMLElement) || !node.classList.contains('title-bar-dropdown')) continue
+            const trigger = node.previousElementSibling
+            if (!trigger || trigger.textContent.trim() !== 'Tools') continue
+            node.appendChild(document.createElement('hr'))
+            const button = document.createElement('button')
+            button.type = 'button'
+            button.textContent = 'Back to PoC index'
+            button.addEventListener('click', () => {
+              window.location.href = 'index.html'
+            })
+            node.appendChild(button)
+          }
+        }
+      }).observe(document.body, { childList: true, subtree: true })
     </script>
   </body>
 </html>

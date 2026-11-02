@@ -3500,3 +3500,46 @@ File/Tools/Help menu, this isn't the real app shell) using the same `-webkit-app
 CSS technique the real `TitleBar.tsx`'s own `.title-bar` class already uses, plus the
 `data-tauri-drag-region` HTML attribute Tauri 2 itself also recognizes, and the same
 `window_minimize`/`window_close` Rust commands `TitleBar.tsx` already calls.
+
+## The Stop freeze, actually fixed this time - and a UX note from the same round
+
+Raising Stop's timeout from 5s to 90s (see "Four more real findings" above) made the reported
+freeze disappear as an *error message* - but the very next report was that Stop now visibly
+froze the *entire app* (every page, every button, confirmed by asking specifically: not just
+that one server's card) for roughly as long as the new timeout allowed. Re-read every real
+function in the actual stop sequence (`stopServerPhased`, `sendRconCommand`, the `SAVE_SETTLE_MS`/
+`FORCE_KILL_CONFIRM_MS` waits) looking for a synchronous/blocking call before concluding
+anything - found none; it's `setTimeout`-based async waits throughout, same as it's always been,
+and `emitStatus` already fires a `'stopping'` push update immediately, before any of those waits
+even start. The bug wasn't in that real code at all.
+
+It was in this PoC's own Rust shell: `call_with_timeout`'s blocking `rx.recv_timeout()` runs on
+whatever thread Tauri dispatches a plain (non-`async`) `#[tauri::command] fn` on - and
+empirically, for this app's IPC setup, that's a thread the window's own event loop depends on, so
+blocking it for any real stretch freezes the whole window, not just the one view whose data
+depends on that call's result. The original 5s timeout never surfaced this as a *freeze* because
+5s (and the sub-second real duration of the ~170 cheap commands) read as a brief stutter, not an
+unresponsive app - same underlying issue the whole time, just far more visible once a timeout was
+long enough to actually notice.
+
+Fixed by adding `call_async` (`tauri::async_runtime::spawn_blocking` around the same
+`rx.recv_timeout()`, properly `.await`ed) and converting the 9 real slow commands' own functions
+to `async fn` using it - `call_with_timeout` itself, and the ~170 other commands still calling it
+synchronously, are completely untouched, since none of them ever reported this and converting
+every command in the file is a much larger, far riskier change for no observed benefit on the
+fast ones. `tauri::State<T>` needed an explicit `'_` lifetime (`tauri::State<'_, SidecarHandle>`)
+on these 9 once they became `async fn` - standard Tauri requirement, compiled clean on the first
+try.
+
+**Verified empirically, not just by reading the fix** - the actual failure mode (the freeze
+disappearing from a rebuild I can't literally feel for myself) needed more than re-reading code a
+second time: installed this PoC's own fake test executable as a real running process (via
+`server_install_test_executable`/`server_start`, the same stand-in every earlier round already
+uses - see "Server process lifecycle" below), clicked its card's Stop button in the real compiled
+`app.html`, and immediately (~110ms later, timestamped) clicked the title bar's "Tools" menu.
+Screenshotted mid-click: the dropdown had fully opened - every item rendered, the new "Back to
+PoC index" entry included - while the card's own badge already showed "STOPPING", proving the
+window's event loop was never blocked at all, not just that it recovered quickly. Waited out the
+fake executable's full grace period afterward and confirmed the badge correctly settled on
+"STOPPED" once it actually exited - the fix didn't just unblock the UI, the real stop sequence
+itself still completed correctly underneath it.

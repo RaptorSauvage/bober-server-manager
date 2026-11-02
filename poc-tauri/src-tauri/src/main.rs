@@ -153,6 +153,46 @@ impl SidecarHandle {
             (None, None) => Err("sidecar returned neither a result nor an error".to_string()),
         }
     }
+
+    // A real report: Stop appeared to freeze the *entire* app (every page, every button, not
+    // just that one server's card) for as long as call_with_timeout's own timeout - which
+    // disappeared entirely once that timeout was long enough to actually notice (bumped from 5s
+    // to 90s for Stop specifically, see server_stop's own comment). call_with_timeout's blocking
+    // rx.recv_timeout() runs on whatever thread Tauri dispatches a plain (non-async)
+    // #[tauri::command] fn on - empirically, for this app's IPC setup, that's a thread the
+    // window's own event loop depends on, so blocking it for any real stretch freezes the whole
+    // window, not just the view this one command's result feeds. The other ~170 commands never
+    // surfaced this because their 5s timeout (and realistically sub-second actual duration) was
+    // short enough not to be noticed as a freeze rather than a brief stutter - this is the same
+    // underlying issue, just far more visible on a 90s wait than a 5s one.
+    //
+    // Used only by the handful of commands whose real duration can plausibly run into the
+    // minutes (server lifecycle, real downloads) - moves the actual blocking wait onto a genuine
+    // background thread via spawn_blocking, so the calling `async fn` command can properly
+    // `.await` it instead of blocking whatever thread invoked it. Left call_with_timeout itself
+    // untouched (still sync/blocking) rather than converting every command to async, since the
+    // other ~170 callers never reported this and converting all of them is a much larger, far
+    // riskier change for no observed benefit.
+    async fn call_async(&self, method: &str, params: Option<Value>, timeout_secs: u64) -> Result<Value, String> {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let (tx, rx) = mpsc::channel();
+        self.pending.lock().unwrap().insert(id, tx);
+
+        write_line(&self.child, &RpcRequest { id, method, params })?;
+
+        let response = tauri::async_runtime::spawn_blocking(move || {
+            rx.recv_timeout(std::time::Duration::from_secs(timeout_secs))
+        })
+        .await
+        .map_err(|e| format!("internal error waiting for the sidecar's response: {e}"))?
+        .map_err(|_| format!("sidecar did not respond within {timeout_secs}s"))?;
+
+        match (response.result, response.error) {
+            (Some(result), _) => Ok(result),
+            (None, Some(err)) => Err(err),
+            (None, None) => Err("sidecar returned neither a result nor an error".to_string()),
+        }
+    }
 }
 
 #[tauri::command]
@@ -414,27 +454,27 @@ fn server_start(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Res
 }
 
 #[tauri::command]
-fn server_stop(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
-    // SAVE_SETTLE_MS (30s) + graceful-exit wait + FORCE_KILL_CONFIRM_MS (10s) - see call_with_timeout's own comment.
-    sidecar.call_with_timeout("server.stop", Some(serde_json::json!({ "profileId": profile_id })), 90)
+async fn server_stop(profile_id: String, sidecar: tauri::State<'_, SidecarHandle>) -> Result<Value, String> {
+    // SAVE_SETTLE_MS (30s) + graceful-exit wait + FORCE_KILL_CONFIRM_MS (10s) - see call_async's own comment.
+    sidecar.call_async("server.stop", Some(serde_json::json!({ "profileId": profile_id })), 90).await
 }
 
 #[tauri::command]
-fn server_restart(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+async fn server_restart(profile_id: String, sidecar: tauri::State<'_, SidecarHandle>) -> Result<Value, String> {
     // A stop sequence followed immediately by a start - roughly double server_stop's own budget.
-    sidecar.call_with_timeout("server.restart", Some(serde_json::json!({ "profileId": profile_id })), 150)
+    sidecar.call_async("server.restart", Some(serde_json::json!({ "profileId": profile_id })), 150).await
 }
 
 #[tauri::command]
-fn server_kill(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+async fn server_kill(profile_id: String, sidecar: tauri::State<'_, SidecarHandle>) -> Result<Value, String> {
     // No SaveWorld settle to wait for, just FORCE_KILL_CONFIRM_MS (10s) plus margin.
-    sidecar.call_with_timeout("server.kill", Some(serde_json::json!({ "profileId": profile_id })), 30)
+    sidecar.call_async("server.kill", Some(serde_json::json!({ "profileId": profile_id })), 30).await
 }
 
 #[tauri::command]
-fn server_update(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+async fn server_update(profile_id: String, sidecar: tauri::State<'_, SidecarHandle>) -> Result<Value, String> {
     // A real SteamCMD download - minutes for a large/modded server, not seconds.
-    sidecar.call_with_timeout("server.update", Some(serde_json::json!({ "profileId": profile_id })), 3600)
+    sidecar.call_async("server.update", Some(serde_json::json!({ "profileId": profile_id })), 3600).await
 }
 
 #[tauri::command]
@@ -702,9 +742,9 @@ fn steamcmd_managed_status(sidecar: tauri::State<SidecarHandle>) -> Result<Value
 }
 
 #[tauri::command]
-fn steamcmd_install(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+async fn steamcmd_install(sidecar: tauri::State<'_, SidecarHandle>) -> Result<Value, String> {
     // Downloads the real SteamCMD binary - same "minutes, not seconds" reasoning as server_update.
-    sidecar.call_with_timeout("steamcmd.install", None, 600)
+    sidecar.call_async("steamcmd.install", None, 600).await
 }
 
 /// Calls refocus_window unconditionally, success or error alike (the sidecar call's own
@@ -1055,9 +1095,9 @@ fn minecraft_install_list_loader_versions(
 }
 
 #[tauri::command]
-fn minecraft_install_run(params: Value, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+async fn minecraft_install_run(params: Value, sidecar: tauri::State<'_, SidecarHandle>) -> Result<Value, String> {
     // Downloads a real server jar/installer - same "minutes, not seconds" reasoning as server_update.
-    sidecar.call_with_timeout("minecraft.install.run", Some(params), 3600)
+    sidecar.call_async("minecraft.install.run", Some(params), 3600).await
 }
 
 /// Backs MinecraftServerDetail/ServerManagementTab.tsx - a twenty-eighth real page, and the
@@ -1229,17 +1269,19 @@ fn minecraft_mods_check_updates(profile_id: String, sidecar: tauri::State<Sideca
 }
 
 #[tauri::command]
-fn minecraft_mods_update(
+async fn minecraft_mods_update(
     profile_id: String,
     source: String,
     project_id: String,
-    sidecar: tauri::State<SidecarHandle>
+    sidecar: tauri::State<'_, SidecarHandle>
 ) -> Result<Value, String> {
-    sidecar.call_with_timeout(
-        "minecraft.mods.update",
-        Some(serde_json::json!({ "profileId": profile_id, "source": source, "projectId": project_id })),
-        600
-    )
+    sidecar
+        .call_async(
+            "minecraft.mods.update",
+            Some(serde_json::json!({ "profileId": profile_id, "source": source, "projectId": project_id })),
+            600
+        )
+        .await
 }
 
 #[tauri::command]
@@ -1261,14 +1303,14 @@ fn minecraft_server_start(profile_id: String, sidecar: tauri::State<SidecarHandl
 }
 
 #[tauri::command]
-fn minecraft_server_stop(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+async fn minecraft_server_stop(profile_id: String, sidecar: tauri::State<'_, SidecarHandle>) -> Result<Value, String> {
     // STOP_GRACE_MS (30s) plus margin - same reasoning as server_stop's own comment.
-    sidecar.call_with_timeout("minecraft.server.stop", Some(serde_json::json!({ "profileId": profile_id })), 60)
+    sidecar.call_async("minecraft.server.stop", Some(serde_json::json!({ "profileId": profile_id })), 60).await
 }
 
 #[tauri::command]
-fn minecraft_server_kill(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
-    sidecar.call_with_timeout("minecraft.server.kill", Some(serde_json::json!({ "profileId": profile_id })), 30)
+async fn minecraft_server_kill(profile_id: String, sidecar: tauri::State<'_, SidecarHandle>) -> Result<Value, String> {
+    sidecar.call_async("minecraft.server.kill", Some(serde_json::json!({ "profileId": profile_id })), 30).await
 }
 
 #[tauri::command]
