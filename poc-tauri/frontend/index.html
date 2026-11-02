@@ -511,7 +511,10 @@
           legacyPreviewEl.textContent = `Selected: ${candidate.path} - no config.json found here.`
           legacyImportBtn.disabled = true
         } else {
-          legacyPreviewEl.textContent = `Selected: ${candidate.path} - ${candidate.profileCount} ARK profile(s), ${candidate.minecraftProfileCount} Minecraft profile(s) found.`
+          legacyPreviewEl.textContent =
+            `Selected: ${candidate.path} - ${candidate.profileCount} ARK profile(s), ${candidate.minecraftProfileCount} Minecraft profile(s), ` +
+            `${candidate.banCount} ban(s), ${candidate.whitelistCount} whitelist entr(ies), ${candidate.watchedPlayerCount} watched player(s), ` +
+            `${candidate.accessTokenCount} web dashboard token(s) found.`
           legacyImportBtn.disabled = false
         }
       }
@@ -560,7 +563,11 @@
           .then((result) => {
             legacyImportStatusEl.textContent =
               `Imported ${result.importedProfiles} ARK profile(s) (${result.skippedProfiles} already present), ` +
-              `${result.importedMinecraftProfiles} Minecraft profile(s) (${result.skippedMinecraftProfiles} already present). ` +
+              `${result.importedMinecraftProfiles} Minecraft profile(s) (${result.skippedMinecraftProfiles} already present), ` +
+              `${result.importedBans} ban(s) (${result.skippedBans} already present), ` +
+              `${result.importedWhitelist} whitelist entr(ies) (${result.skippedWhitelist} already present), ` +
+              `${result.importedWatchedPlayers} watched player(s) (${result.skippedWatchedPlayers} already present), ` +
+              `${result.importedAccessTokens} web dashboard token(s) (${result.skippedAccessTokens} already present). ` +
               `Custom maps file copied: ${result.customMapsCopied}.`
           })
           .catch((err) => {

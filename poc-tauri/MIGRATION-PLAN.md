@@ -108,14 +108,24 @@ hypothèse parmi deux, même si les deux restent vérifiés par prudence (une in
 ancienne et jamais mise à jour depuis avant ce fix, ou une config electron-builder différente,
 reste théoriquement possible).
 
-**Ce qu'il reste** : seuls les profils ARK/Minecraft sont importés pour l'instant, plus une
-copie best-effort de `customMaps.json` (dossier Documents). Les autres tableaux du store
-(bans, whitelist, watchlist, tokens d'accès web dashboard, historique d'événements de mods,
-etc.) sont mécaniquement identiques à porter - même mécanisme exactement, juste pas encore
-fait, pour garder le premier jet honnête et borné plutôt que de prétendre à un import
-"tout compris" jamais vraiment testé champ par champ. Le bouton natif de sélection manuelle n'a
-pas été testé avec un vrai clic humain (même gap que les autres sélecteurs natifs de ce PoC,
-voir section suivante).
+**Étendu depuis** : profils ARK/Minecraft, bans, whitelist, watchlist (alertes Discord "joueur
+connecté") et tokens d'accès web dashboard sont maintenant tous importés, chacun avec le même
+principe "jamais écraser un id déjà présent". Les bans/whitelist ont une subtilité propre : ils
+sont stockés par id de joueur avec un tableau `profileIds` (un id peut être banni sur plusieurs
+serveurs réels à la fois), donc l'import boucle une fois par `profileId` legacy à travers les
+vraies `recordPlayerBan()`/`recordWhitelistedPlayer()` - qui recalculent `bannedAt`/`addedAt` à
+l'instant présent plutôt que de préserver l'horodatage historique du fichier legacy (comportement
+réel de ces fonctions, pas un bug de l'import : elles sont conçues pour "cet id vient d'être
+banni maintenant", pas pour une restauration d'archive). Les tokens d'accès importent le vrai
+`secretHash` tel quel (pas de régénération) : un token qu'un utilisateur a déjà distribué continue
+à authentifier contre la nouvelle appli sans rien reconfigurer. Testé de bout en bout (standalone
+et via l'app compilée réelle), y compris l'idempotence sur les six types de données à la fois.
+
+**Ce qu'il reste** : une copie best-effort de `customMaps.json` (dossier Documents) existe déjà ;
+l'historique d'événements de mods et les clés API CurseForge/web dashboard restantes sont
+mécaniquement identiques à porter - même mécanisme exactement, juste pas encore fait. Le bouton
+natif de sélection manuelle n'a pas été testé avec un vrai clic humain (même gap que les autres
+sélecteurs natifs de ce PoC, voir section suivante).
 
 ### 3. Le flux de mise à jour automatique n'est pas porté du tout
 
@@ -183,10 +193,11 @@ promettre un temps de démarrage à l'utilisateur final.
 
 1. **App shell + pont `window.api` unifié** (section 1) - le vrai bloqueur structurel, tout le
    reste en dépend pour devenir une appli plutôt qu'une collection de démos.
-2. **Finir la migration de données** (section 2, déjà démarrée) - étendre `legacyImport.ts` aux
-   tableaux du store restants (bans, whitelist, watchlist, tokens), et confirmer sur une vraie
-   machine Windows quel nom de dossier (`name` vs `productName`) l'appli Electron réelle utilise
-   effectivement.
+2. **Finir la migration de données** (section 2 - profils, bans, whitelist, watchlist et tokens
+   sont déjà importés) - reste l'historique d'événements de mods et les clés API restantes, plus
+   confirmer sur une vraie machine Windows quel nom de dossier (`name` vs `productName`, réglé
+   pour tout build futur par `legacyUserDataCompat.ts` mais pas vérifié sur une install déjà
+   existante) l'appli Electron réelle utilise effectivement.
 3. **Audit module par module** des 39 fichiers `src/main/ipc/*.ts` contre les commandes
    `main.rs` existantes - combler les trous avant de considérer la surface "complète".
 4. **QA manuelle sur Windows** : vrais dialogues natifs, chaque bouton de confirmation, vrai

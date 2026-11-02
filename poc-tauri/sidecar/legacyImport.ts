@@ -19,17 +19,33 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { listProfiles, saveProfile, listMinecraftProfiles, saveMinecraftProfile } from '../../src/main/store'
+import {
+  listProfiles,
+  saveProfile,
+  listMinecraftProfiles,
+  saveMinecraftProfile,
+  listPlayerBans,
+  recordPlayerBan,
+  listWhitelistedPlayers,
+  recordWhitelistedPlayer,
+  listWatchedPlayers,
+  addWatchedPlayer,
+  listWebDashboardAccessTokens,
+  saveWebDashboardAccessToken
+} from '../../src/main/store'
 import { getDefaultDataDir } from '../../src/main/lib/dataDir'
 import { migrateProfile } from '../../src/main/lib/profileMigration'
 import { migrateMinecraftProfile } from '../../src/main/lib/minecraftProfileMigration'
 
+// Field names match the real StoreSchema's own keys exactly (src/main/store.ts) - `playerBans`/
+// `playerWhitelist`, not the shorter "bans"/"whitelist" this file's own MIGRATION-PLAN.md prose
+// uses informally.
 interface LegacyStoreShape {
   profiles?: unknown[]
   minecraftProfiles?: unknown[]
   webDashboardAccessTokens?: unknown[]
-  bans?: unknown[]
-  whitelist?: unknown[]
+  playerBans?: unknown[]
+  playerWhitelist?: unknown[]
   watchedPlayers?: unknown[]
 }
 
@@ -55,6 +71,10 @@ export interface LegacyCandidate {
   hasConfig: boolean
   profileCount: number
   minecraftProfileCount: number
+  banCount: number
+  whitelistCount: number
+  watchedPlayerCount: number
+  accessTokenCount: number
   error?: string
 }
 
@@ -67,19 +87,25 @@ function readLegacyStore(configPath: string): { data?: LegacyStoreShape; error?:
   }
 }
 
+const emptyCounts = { profileCount: 0, minecraftProfileCount: 0, banCount: 0, whitelistCount: 0, watchedPlayerCount: 0, accessTokenCount: 0 }
+
 function describeCandidate(dir: string): LegacyCandidate {
   const configPath = path.join(dir, 'config.json')
   if (!fs.existsSync(configPath)) {
-    return { path: dir, configPath, hasConfig: false, profileCount: 0, minecraftProfileCount: 0 }
+    return { path: dir, configPath, hasConfig: false, ...emptyCounts }
   }
   const { data, error } = readLegacyStore(configPath)
-  if (!data) return { path: dir, configPath, hasConfig: true, profileCount: 0, minecraftProfileCount: 0, error }
+  if (!data) return { path: dir, configPath, hasConfig: true, ...emptyCounts, error }
   return {
     path: dir,
     configPath,
     hasConfig: true,
     profileCount: Array.isArray(data.profiles) ? data.profiles.length : 0,
-    minecraftProfileCount: Array.isArray(data.minecraftProfiles) ? data.minecraftProfiles.length : 0
+    minecraftProfileCount: Array.isArray(data.minecraftProfiles) ? data.minecraftProfiles.length : 0,
+    banCount: Array.isArray(data.playerBans) ? data.playerBans.length : 0,
+    whitelistCount: Array.isArray(data.playerWhitelist) ? data.playerWhitelist.length : 0,
+    watchedPlayerCount: Array.isArray(data.watchedPlayers) ? data.watchedPlayers.length : 0,
+    accessTokenCount: Array.isArray(data.webDashboardAccessTokens) ? data.webDashboardAccessTokens.length : 0
   }
 }
 
@@ -101,8 +127,32 @@ export interface LegacyImportResult {
   skippedProfiles: number
   importedMinecraftProfiles: number
   skippedMinecraftProfiles: number
+  importedBans: number
+  skippedBans: number
+  importedWhitelist: number
+  skippedWhitelist: number
+  importedWatchedPlayers: number
+  skippedWatchedPlayers: number
+  importedAccessTokens: number
+  skippedAccessTokens: number
   customMapsCopied: boolean
   error?: string
+}
+
+const emptyImportResult: LegacyImportResult = {
+  importedProfiles: 0,
+  skippedProfiles: 0,
+  importedMinecraftProfiles: 0,
+  skippedMinecraftProfiles: 0,
+  importedBans: 0,
+  skippedBans: 0,
+  importedWhitelist: 0,
+  skippedWhitelist: 0,
+  importedWatchedPlayers: 0,
+  skippedWatchedPlayers: 0,
+  importedAccessTokens: 0,
+  skippedAccessTokens: 0,
+  customMapsCopied: false
 }
 
 /** The actual write path. Reuses the real saveProfile()/saveMinecraftProfile() - the same
@@ -116,7 +166,7 @@ export interface LegacyImportResult {
 export function runLegacyImport(dir: string): LegacyImportResult {
   const configPath = path.join(dir, 'config.json')
   const { data, error } = readLegacyStore(configPath)
-  if (!data) return { importedProfiles: 0, skippedProfiles: 0, importedMinecraftProfiles: 0, skippedMinecraftProfiles: 0, customMapsCopied: false, error }
+  if (!data) return { ...emptyImportResult, error }
 
   const existingProfileIds = new Set(listProfiles().map((p) => p.id))
   let importedProfiles = 0
@@ -162,6 +212,73 @@ export function runLegacyImport(dir: string): LegacyImportResult {
     importedMinecraftProfiles++
   }
 
+  // Bans/whitelist are keyed by player id with a `profileIds` array (one id can be banned on
+  // several real servers) - recordPlayerBan()/recordWhitelistedPlayer() take discrete args and
+  // upsert-merge profileIds onto an *existing* entry of the same id, which is the right
+  // behavior for "this id just got banned on this server" but not for a bulk import: looping it
+  // once per legacy profileId, only for ids the current store doesn't already have, reuses that
+  // same real upsert logic correctly while keeping this importer's own already-established
+  // "never touch an id the current store already has" guarantee.
+  const existingBanIds = new Set(listPlayerBans().map((b) => b.id))
+  let importedBans = 0
+  let skippedBans = 0
+  for (const raw of data.playerBans ?? []) {
+    const ban = raw as { id?: string; name?: string; reason?: string; profileIds?: string[] }
+    if (!ban.id || existingBanIds.has(ban.id)) {
+      skippedBans++
+      continue
+    }
+    const profileIds = Array.isArray(ban.profileIds) && ban.profileIds.length > 0 ? ban.profileIds : ['legacy-import']
+    for (const profileId of profileIds) recordPlayerBan(ban.id, ban.name ?? ban.id, ban.reason ?? '', profileId)
+    importedBans++
+  }
+
+  const existingWhitelistIds = new Set(listWhitelistedPlayers().map((w) => w.id))
+  let importedWhitelist = 0
+  let skippedWhitelist = 0
+  for (const raw of data.playerWhitelist ?? []) {
+    const entry = raw as { id?: string; name?: string; profileIds?: string[] }
+    if (!entry.id || existingWhitelistIds.has(entry.id)) {
+      skippedWhitelist++
+      continue
+    }
+    const profileIds = Array.isArray(entry.profileIds) && entry.profileIds.length > 0 ? entry.profileIds : ['legacy-import']
+    for (const profileId of profileIds) recordWhitelistedPlayer(entry.id, entry.name ?? entry.id, profileId)
+    importedWhitelist++
+  }
+
+  // Flat shape, no per-profile merging needed - addWatchedPlayer() takes the whole object
+  // directly, same as saveProfile()'s own shape (just no migrateX() step, since
+  // WatchedPlayerAlert never gained new fields the way ServerProfile did).
+  const existingWatchedIds = new Set(listWatchedPlayers().map((w) => w.id))
+  let importedWatchedPlayers = 0
+  let skippedWatchedPlayers = 0
+  for (const raw of data.watchedPlayers ?? []) {
+    const entry = raw as { id?: string; value?: string; label?: string; createdAt?: number }
+    if (!entry.id || existingWatchedIds.has(entry.id)) {
+      skippedWatchedPlayers++
+      continue
+    }
+    addWatchedPlayer({ id: entry.id, value: entry.value ?? '', label: entry.label ?? '', createdAt: entry.createdAt ?? Date.now() })
+    importedWatchedPlayers++
+  }
+
+  // Importing the real secretHash as-is (not generating a new one) is deliberate: the point is
+  // that a token a real user already has saved/distributed keeps authenticating against the new
+  // app without them needing to regenerate and redistribute it.
+  const existingTokenIds = new Set(listWebDashboardAccessTokens().map((t) => t.id))
+  let importedAccessTokens = 0
+  let skippedAccessTokens = 0
+  for (const raw of data.webDashboardAccessTokens ?? []) {
+    const token = raw as { id?: string }
+    if (!token.id || existingTokenIds.has(token.id)) {
+      skippedAccessTokens++
+      continue
+    }
+    saveWebDashboardAccessToken(token as unknown as Parameters<typeof saveWebDashboardAccessToken>[0])
+    importedAccessTokens++
+  }
+
   // Best-effort secondary copy: the Documents-based data dir (customMaps.json, INI template
   // imports) is a second, independent on-disk location from the electron-store config.json
   // above, and only ever gets copied here if the *new* app's own default data dir doesn't
@@ -183,5 +300,19 @@ export function runLegacyImport(dir: string): LegacyImportResult {
     // blocks the real profile import above, which is the part that actually matters.
   }
 
-  return { importedProfiles, skippedProfiles, importedMinecraftProfiles, skippedMinecraftProfiles, customMapsCopied }
+  return {
+    importedProfiles,
+    skippedProfiles,
+    importedMinecraftProfiles,
+    skippedMinecraftProfiles,
+    importedBans,
+    skippedBans,
+    importedWhitelist,
+    skippedWhitelist,
+    importedWatchedPlayers,
+    skippedWatchedPlayers,
+    importedAccessTokens,
+    skippedAccessTokens,
+    customMapsCopied
+  }
 }
