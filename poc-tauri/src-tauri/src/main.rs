@@ -28,7 +28,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize};
 use rfd::FileDialog;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_shell::ShellExt;
@@ -109,6 +109,11 @@ struct SidecarHandle {
     next_id: AtomicI64,
     pending: PendingMap,
 }
+
+/// Pre-maximize window rect, set while `window_toggle_maximize`'s pseudo-maximize is active -
+/// see that command's own doc comment for why this exists instead of relying on the native
+/// maximized/restore state.
+struct MaximizeState(Mutex<Option<(PhysicalPosition<i32>, PhysicalSize<u32>)>>);
 
 /// Writes one JSON-RPC-shaped line to the sidecar's stdin - shared by `SidecarHandle::call`
 /// (Rust calling the sidecar) and the reader task's shell-request handling (answering the
@@ -1373,16 +1378,46 @@ fn window_minimize(app_handle: tauri::AppHandle) -> Result<(), String> {
 /// hooks, but with this window frameless (`decorations: false`, matching the real app's own
 /// custom-title-bar design) the custom title bar's button is the only way this state ever
 /// changes, so firing the push from here covers every real case, not just a shortcut.
+///
+/// A real report, round two: the first fix here (clamp to `monitor.work_area()` on every
+/// `Resized` event while `is_maximized()`) compiled clean and matched the documented community
+/// workaround, but a user screenshot after rebuilding showed the exact same clip - the bottom
+/// icon still cut off by the taskbar. Re-reading the Windows maximize model explains why a
+/// post-hoc clamp was the wrong shape of fix: once a window is in the native SW_MAXIMIZE state,
+/// Windows owns and keeps re-asserting that rect: calling `set_size`/`set_position` *after* the
+/// fact fights the OS's own window manager instead of replacing its decision, so it doesn't
+/// reliably stick. The actually-robust fix (the same shape Electron's own internal handling for
+/// `frame: false` uses) is to never enter the native maximize state for the button-driven case
+/// at all: this command now computes the monitor's work area itself and manually sets the
+/// window to exactly that rect - a plain `set_size`/`set_position` on a normal (non-maximized)
+/// window, which Windows has no competing opinion about. `MaximizeState` remembers the
+/// pre-maximize rect (`outer_position`/`outer_size`) so "unmaximize" can restore it exactly,
+/// since a window that was never truly maximized has no native restore-rect of its own.
 #[tauri::command]
-fn window_toggle_maximize(app_handle: tauri::AppHandle) -> Result<(), String> {
+fn window_toggle_maximize(
+    app_handle: tauri::AppHandle,
+    maximize_state: tauri::State<MaximizeState>,
+) -> Result<(), String> {
     let window = app_handle.get_webview_window("main").ok_or_else(|| "no main window".to_string())?;
-    let now_maximized = if window.is_maximized().map_err(|e| e.to_string())? {
-        window.unmaximize().map_err(|e| e.to_string())?;
+    let mut saved = maximize_state.0.lock().map_err(|e| e.to_string())?;
+    let now_maximized = if let Some((pos, size)) = saved.take() {
+        window.set_position(pos).map_err(|e| e.to_string())?;
+        window.set_size(size).map_err(|e| e.to_string())?;
         false
     } else {
-        window.maximize().map_err(|e| e.to_string())?;
+        let pos = window.outer_position().map_err(|e| e.to_string())?;
+        let size = window.outer_size().map_err(|e| e.to_string())?;
+        let monitor = window
+            .current_monitor()
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "no current monitor".to_string())?;
+        let work_area = monitor.work_area();
+        window.set_position(work_area.position).map_err(|e| e.to_string())?;
+        window.set_size(work_area.size).map_err(|e| e.to_string())?;
+        *saved = Some((pos, size));
         true
     };
+    drop(saved);
     app_handle.emit("window-maximized-changed", now_maximized).map_err(|e| e.to_string())
 }
 
@@ -1395,13 +1430,13 @@ fn window_close(app_handle: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Mirrors `window_toggle_maximize`'s own pseudo-maximize tracking (see its doc comment) rather
+/// than calling the native `is_maximized()` - the window is deliberately never put into the real
+/// SW_MAXIMIZE state via that command, so the native query would always read false after a
+/// button-driven maximize.
 #[tauri::command]
-fn window_is_maximized(app_handle: tauri::AppHandle) -> Result<bool, String> {
-    app_handle
-        .get_webview_window("main")
-        .ok_or_else(|| "no main window".to_string())?
-        .is_maximized()
-        .map_err(|e| e.to_string())
+fn window_is_maximized(maximize_state: tauri::State<MaximizeState>) -> Result<bool, String> {
+    Ok(maximize_state.0.lock().map_err(|e| e.to_string())?.is_some())
 }
 
 /// Backs TitleBar.tsx's File > Quit - the real ipc/system.ts's own app.quit() equivalent.
@@ -1675,18 +1710,18 @@ fn main() {
         .setup(|app| {
             let handle = spawn_sidecar(app);
             app.manage(handle);
+            app.manage(MaximizeState(Mutex::new(None)));
             Ok(())
         })
-        // A real report: with decorations: false (see "A double title bar" above - this window
-        // draws its own chrome instead of the OS's, same as the real Electron app's frame: false),
-        // maximizing on Windows clips the sidebar's bottom-pinned icon. This is a known Windows/
-        // tao quirk specific to borderless windows: Windows' own maximize sizing adds invisible
-        // non-client border insets a bordered window's OS chrome normally absorbs, which a
-        // decorations: false window has none of, so the content area ends up a few pixels past
-        // the real work area (behind the taskbar) instead of exactly filling it - Electron's own
-        // frame: false already handles this internally, tao does not yet. Standard workaround:
-        // on every resize, if now maximized, explicitly clamp the window to the monitor's work
-        // area (screen size minus the taskbar) instead of trusting Windows' own maximize size.
+        // A real report, see window_toggle_maximize's own doc comment for the full story: a
+        // first fix here (clamp to monitor.work_area() on every Resized event while
+        // is_maximized()) didn't survive a real rebuild+retest - Windows keeps re-asserting a
+        // native maximized window's own rect, so a post-hoc resize doesn't reliably stick. The
+        // actual fix is in window_toggle_maximize itself now (pseudo-maximize, never entering
+        // native SW_MAXIMIZE for the button-driven path). This handler stays only as a secondary
+        // safety net for a maximize triggered some other way than that button - Win+Up, dragging
+        // to the top of the screen, etc. - which still goes through the real native path this
+        // PoC's own command bypasses.
         .on_window_event(|window, event| {
             if !matches!(event, tauri::WindowEvent::Resized(_)) {
                 return;

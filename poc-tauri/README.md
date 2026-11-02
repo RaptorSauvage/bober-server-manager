@@ -3590,12 +3590,33 @@ real work area, extending behind the taskbar, instead of exactly filling it. Ele
 `frame: false` already handles this internally, which is why the real app never showed this bug;
 tao (currently 0.37.2, under tauri 2.12.5) does not yet.
 
-Fixed with the standard community workaround: an `.on_window_event` handler watching for
-`WindowEvent::Resized`, which - only while `window.is_maximized()` is true - clamps the window to
-`monitor.work_area()` (`current_monitor()` → `work_area()`, then `set_size`/`set_position`)
-instead of trusting whatever size Windows' own maximize produced. `cargo build` compiled clean on
-the first try against the real 2.12.5/0.37.2 API shapes. This one could not be verified the way
-the other two were: there is no real Windows maximize semantics to reproduce in this sandbox's
-Xvfb, so unlike every other fix in this document, it ships on "compiles and matches the documented
-workaround for this exact known issue" rather than an observed-working screenshot - it needs
-confirmation on the user's actual Windows machine.
+First attempt: an `.on_window_event` handler watching for `WindowEvent::Resized`, which - only
+while `window.is_maximized()` is true - clamps the window to `monitor.work_area()`
+(`current_monitor()` → `work_area()`, then `set_size`/`set_position`) instead of trusting
+whatever size Windows' own maximize produced. `cargo build` compiled clean on the first try
+against the real 2.12.5/0.37.2 API shapes - but this one couldn't be verified the way the other
+two were (no real Windows maximize semantics in this sandbox's Xvfb), and it shipped anyway on
+"compiles and matches a documented community workaround" rather than an observed-working
+screenshot. **It didn't work.** The next real report, after an actual rebuild and retest, was the
+exact same clip, pixel for pixel.
+
+The flaw: once a window is in the native `SW_MAXIMIZE` state, Windows owns that rect and keeps
+re-asserting it - calling `set_size`/`set_position` *after* `maximize()` already ran fights the
+OS's own window manager instead of replacing its decision, so it doesn't reliably stick. The
+actual fix (the same shape Electron's own internal handling for `frame: false` uses) is to never
+enter native maximize for the button-driven path at all: `window_toggle_maximize` now computes
+the monitor's work area itself and manually sets the window to exactly that rect - a plain
+`set_size`/`set_position` on a *normal* (non-maximized) window, which Windows has no competing
+opinion about. A new `MaximizeState` (a `Mutex<Option<(PhysicalPosition, PhysicalSize)>>`) remembers
+the pre-maximize rect so "unmaximize" can restore it exactly, and `window_is_maximized` now reads
+that same tracked state instead of the native query, which would otherwise always read false
+after this kind of maximize. The original `Resized`-based clamp stays in as a secondary safety
+net for a maximize triggered some other way than the button (Win+Up, drag-to-top), which still
+goes through the real native path this pseudo-maximize sidesteps - it just isn't the fix for the
+reported bug anymore.
+
+Same caveat as before, worth repeating rather than glossing over now that the first attempt at
+this exact fix already turned out wrong once: `cargo build` and a clean Xvfb smoke boot are all
+that could be verified here, and neither says anything about real Windows maximize behavior. This
+needs the user's own rebuild-and-retest to actually confirm, not just a second "should work"
+write-up.
