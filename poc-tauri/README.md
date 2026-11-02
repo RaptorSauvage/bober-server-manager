@@ -3704,3 +3704,51 @@ round. Killed it and re-ran the same verification script unchanged, which then s
 correct result (every `<img>` and `/api/servers` URL cache-busted, every one resolving to a real
 200). A reminder that a verification script's own result is only as trustworthy as knowing
 exactly which process answered it.
+
+## The sidebar clip, round three - it was never Windows, never tao, never maximize at all
+
+Two straight rounds fixed the clipped sidebar icon as a Windows/tao borderless-maximize quirk -
+first by clamping the window to `monitor.work_area()` on resize, then (when that didn't survive a
+real retest) by never entering native maximize at all and manually sizing the window to the work
+area instead. Both compiled clean, both matched a documented, real class of Windows bug for
+exactly this kind of window. Both did nothing: the next real report, after a genuine rebuild and
+retest, was the same clip, plus a new detail - "léger décalage... écran 2K 2560x1440" - that read
+like it could point at a DPI-scaling bug in the new pseudo-maximize math instead. Asked two
+scoped questions before writing a third guess: had the rebuild actually happened after the
+pseudo-maximize commit (yes), and was Windows display scaling above 100% on that monitor (no,
+100%) - which ruled out both "stale binary" and "logical/physical pixel mismatch" as explanations
+in one round trip, rather than guessing at either.
+
+With two Windows-specific theories both eliminated by direct evidence, the next step was to stop
+assuming the bug lived in Rust/tao at all and test the one remaining variable directly: Xvfb has
+no window manager, no taskbar, no OS maximize semantics whatsoever - so a Tauri window in it can
+be resized to an exact pixel size (`xdotool windowsize/windowmove`) with zero OS involvement. Spun
+up a second Xvfb display at the user's own exact `2560x1440`, resized the real app window to fill
+it directly, and the icon clipped anyway - proof, not inference, that this was never a Windows or
+tao bug at all, since there was no Windows or tao window-manager behavior anywhere in that
+reproduction.
+
+That redirected the search to pure CSS, and a temporary debug overlay (injected into this PoC's
+own `app.html` only, read via `getBoundingClientRect`/`getComputedStyle` on the real elements,
+reverted before anything was committed) gave the real mechanism directly instead of more guessing:
+`App.tsx` wraps each game mode's whole tree in its own always-mounted, `.app-view-hidden`-toggled
+wrapper `<div>` (see its own comment on why - avoiding a remount flash when switching modes).
+`styles.css`'s `#root > .title-bar ~ *` rule - the one that gives the title bar's sibling
+`flex: 1; min-height: 0; overflow: auto` so it fills exactly the space below the 40px title bar -
+matches *that wrapper div*, not `.app-shell` itself, which sits one level deeper inside it.
+`.app-shell`'s own rule carried `min-height: 100vh` - the full viewport, with no idea a 40px title
+bar above it already claimed part of that space - so `.app-shell` (and the sidebar stretched to
+match it, including its bottom-pinned icon group) ended up exactly 40px taller than the room its
+own correctly-sized parent actually had. A fixed-size overflow, not a maximize-specific one -
+which is exactly why clamping window geometry two different ways in a row never touched it, and
+why it reproduced identically with no window manager at all.
+
+Fixed in real, shared source (`styles.css` - the real Electron app composes its own window exactly
+the same way and would hit the identical shortfall under the same conditions, this was never
+PoC-specific): `.app-shell` now gets `height: 100%` instead of `min-height: 100vh`, correctly
+inheriting the real available space from its already-correctly-sized parent instead of
+re-deriving its own from the viewport and ignoring the title bar entirely. `app-styles.css` (this
+PoC's own verbatim copy) re-synced to match. Verified by reproducing the exact same zero-OS-
+involvement repro after the fix, at the user's own `2560x1440`: the gear icon, cropped and zoomed
+from the same corner as the broken screenshot, now sits fully visible with clean padding beneath
+it - not inferred from reading the CSS fix, seen directly in a second screenshot of the same spot.

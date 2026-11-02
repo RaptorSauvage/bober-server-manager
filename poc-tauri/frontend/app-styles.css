@@ -375,9 +375,26 @@ label.checkbox {
   font-size: 0.85rem;
 }
 
+/* height: 100% (not min-height: 100vh, which this used to be) - .app-shell is not actually a
+   direct sibling of .title-bar in the real DOM: App.tsx wraps each game mode's whole tree
+   (ark/minecraft) in its own always-mounted, .app-view-hidden-toggled <div> (see its own
+   comment on why), so #root > .title-bar ~ * - the rule that gives the title bar's sibling
+   `flex: 1; min-height: 0; overflow: auto`, so it fills exactly the remaining space below the
+   40px title bar - lands on THAT wrapper div, not on .app-shell itself, which sits one level
+   deeper inside it. With min-height: 100vh, .app-shell asked for the FULL viewport height
+   regardless of the 40px title bar already consuming part of it, so it (and the sidebar
+   stretched to match it, including its bottom-pinned icon group) ended up exactly 40px taller
+   than the space its own properly-sized parent actually has - a real, fixed-size overflow
+   that's always there at any window size, confirmed by reproducing it with zero OS/window-
+   manager involvement at all (a Tauri window resized directly to a fixed size under Xvfb, no
+   taskbar, no maximize semantics), not something a Windows-maximize fix could ever have
+   addressed since the bug was never there - two earlier rounds chased exactly that, on a real
+   user report, before this one actually isolated it. height: 100% instead correctly inherits
+   the real available space from the wrapper div above (which is already sized right), rather
+   than re-deriving its own from the viewport and ignoring everything above it. */
 .app-shell {
   display: flex;
-  min-height: 100vh;
+  height: 100%;
 }
 
 /* Icon-only rail - no text labels, just a centered icon per item (title="" on each button
