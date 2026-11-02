@@ -169,6 +169,20 @@ fn profiles_copy(
     )
 }
 
+/// CreateServerWizard's "copy config from an existing server" option. Found missing from
+/// this PoC during the IPC-surface audit.
+#[tauri::command]
+fn profiles_copy_config_from(
+    source_profile_id: String,
+    dest_profile_id: String,
+    sidecar: tauri::State<SidecarHandle>,
+) -> Result<Value, String> {
+    sidecar.call(
+        "profiles.copyConfigFrom",
+        Some(serde_json::json!({ "sourceProfileId": source_profile_id, "destProfileId": dest_profile_id })),
+    )
+}
+
 #[tauri::command]
 fn profiles_move(
     profile_id: String,
@@ -440,6 +454,13 @@ fn system_stats_get_network_usage(sidecar: tauri::State<SidecarHandle>) -> Resul
     sidecar.call("systemStats.getNetworkUsage", None)
 }
 
+/// Dashboard's "ARK Official Server Network" status banner - a real outbound fetch against
+/// arkdedicated.com's own status feed. Found missing from this PoC during the IPC-surface audit.
+#[tauri::command]
+fn official_server_status_get(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("officialServerStatus.get", None)
+}
+
 #[tauri::command]
 fn stats_history_get(
     profile_id: String,
@@ -637,6 +658,21 @@ fn stats_history_get_for_groups(
     sidecar.call(
         "statsHistory.getForGroups",
         Some(serde_json::json!({ "groupProfileIds": group_profile_ids, "sinceMs": since_ms, "maxPoints": max_points })),
+    )
+}
+
+/// Single-group sibling of stats_history_get_for_groups above (ClusterConsole/ClusterDataView's
+/// merged-cluster view). Found missing from this PoC during the IPC-surface audit.
+#[tauri::command]
+fn stats_history_get_for_group(
+    profile_ids: Vec<String>,
+    since_ms: Option<i64>,
+    max_points: Option<i64>,
+    sidecar: tauri::State<SidecarHandle>,
+) -> Result<Value, String> {
+    sidecar.call(
+        "statsHistory.getForGroup",
+        Some(serde_json::json!({ "profileIds": profile_ids, "sinceMs": since_ms, "maxPoints": max_points })),
     )
 }
 
@@ -1558,6 +1594,7 @@ fn main() {
             profiles_save,
             profiles_copy,
             profiles_move,
+            profiles_copy_config_from,
             dialog_select_directory,
             dialog_select_file,
             dialog_select_ini_file,
@@ -1586,7 +1623,9 @@ fn main() {
             profiles_reorder,
             system_stats_get_static_info,
             system_stats_get_network_usage,
+            official_server_status_get,
             stats_history_get,
+            stats_history_get_for_group,
             backup_get_schedule_status,
             server_get_installed_build_id,
             server_get_game_version,

@@ -39,6 +39,14 @@ des utilisateurs de ce manager.
 - **Le vrai `App.tsx` tourne, pas une 37e page de démo** (voir section 1 ci-dessous) - le vrai
   shell applicatif, avec le vrai `app.css`, un unique pont `window.api` complet
   (`frontend/lib/windowApi.ts`), navigation sidebar/onglets réelle confirmée via l'app compilée.
+- **Le pont `window.api` a été audité en entier contre le vrai `Api` de `shared/types.ts`**
+  (voir README, "The IPC-surface audit") - diff exhaustif (namespaces + noms de méthodes) plutôt
+  qu'un échantillon, croisé avec le vrai preload et les vrais handlers IPC. Quatre écarts réels
+  trouvés et corrigés (`profiles.copyConfigFrom`, `statsHistory.getForGroup`, tout le namespace
+  `officialServerStatus`, et un type de callback erroné sur `steamcmd.onUpdateLogChanged`),
+  chacun testé contre le vrai sidecar avant commit. Fait explicitement avant la session de test
+  de l'utilisateur, pour éviter un troisième crash du même genre que `windowControls.isMaximized`
+  et `systemStats.get` (déjà rencontrés et corrigés pendant le portage d'App.tsx).
 
 ## Ce qui n'existe pas encore et qui est le vrai travail
 

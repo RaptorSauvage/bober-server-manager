@@ -34,6 +34,7 @@ import type {
   ModEvent,
   ModEventHistoryEntry,
   NetworkUsage,
+  OfficialServerStatus,
   PlayerActivityRecord,
   PlayerActivitySession,
   PlayerBackupFolder,
@@ -84,6 +85,7 @@ declare global {
         reorder: (orderedIds: string[]) => Promise<ServerProfile[]>
         copy: (profileId: string, destInstallDir: string, newName: string) => Promise<{ profile: ServerProfile; profiles: ServerProfile[] }>
         move: (profileId: string, destInstallDir: string, newName: string) => Promise<{ profile: ServerProfile; profiles: ServerProfile[] }>
+        copyConfigFrom: (sourceProfileId: string, destProfileId: string) => Promise<void>
         export: (profileId: string, filePath: string) => Promise<void>
         importFromFile: (filePath: string) => Promise<{ profile: ServerProfile; profiles: ServerProfile[] }>
         onChanged: (callback: (profiles: ServerProfile[]) => void) => () => void
@@ -124,7 +126,11 @@ declare global {
       }
       statsHistory: {
         get: (profileId: string, sinceMs: number, maxPoints: number) => Promise<StatSample[]>
-        getForGroups: (groupProfileIds: string[], sinceMs: number, maxPoints: number) => Promise<Record<string, StatSample[]>>
+        getForGroup: (profileIds: string[], sinceMs: number, maxPoints: number) => Promise<StatSample[]>
+        getForGroups: (groupProfileIds: Record<string, string[]>, sinceMs: number, maxPoints: number) => Promise<Record<string, StatSample[]>>
+      }
+      officialServerStatus: {
+        get: () => Promise<OfficialServerStatus>
       }
       system: {
         openServerConfigFolder: (profileId: string) => Promise<void>
@@ -149,7 +155,7 @@ declare global {
         install: () => Promise<string>
         addFirewallRule: (steamCmdPath: string) => Promise<void>
         getUpdateLog: (profileId: string) => Promise<string | null>
-        onUpdateLogChanged: (callback: (log: string) => void) => () => void
+        onUpdateLogChanged: (callback: (profileId: string) => void) => () => void
       }
       dialog: {
         selectDirectory: () => Promise<string | null>
@@ -382,6 +388,8 @@ export function installWindowApi(): void {
         invoke('profiles_copy', { profileId, destInstallDir, newName }) as Promise<{ profile: ServerProfile; profiles: ServerProfile[] }>,
       move: (profileId, destInstallDir, newName) =>
         invoke('profiles_move', { profileId, destInstallDir, newName }) as Promise<{ profile: ServerProfile; profiles: ServerProfile[] }>,
+      copyConfigFrom: (sourceProfileId, destProfileId) =>
+        invoke('profiles_copy_config_from', { sourceProfileId, destProfileId }) as Promise<void>,
       export: (profileId, filePath) => invoke('profiles_export', { profileId, filePath }) as Promise<void>,
       importFromFile: (filePath) =>
         invoke('profiles_import_from_file', { filePath }) as Promise<{ profile: ServerProfile; profiles: ServerProfile[] }>,
@@ -429,8 +437,13 @@ export function installWindowApi(): void {
     },
     statsHistory: {
       get: (profileId, sinceMs, maxPoints) => invoke('stats_history_get', { profileId, sinceMs, maxPoints }) as Promise<StatSample[]>,
+      getForGroup: (profileIds, sinceMs, maxPoints) =>
+        invoke('stats_history_get_for_group', { profileIds, sinceMs, maxPoints }) as Promise<StatSample[]>,
       getForGroups: (groupProfileIds, sinceMs, maxPoints) =>
         invoke('stats_history_get_for_groups', { groupProfileIds, sinceMs, maxPoints }) as Promise<Record<string, StatSample[]>>
+    },
+    officialServerStatus: {
+      get: () => invoke('official_server_status_get') as Promise<OfficialServerStatus>
     },
     system: {
       openServerConfigFolder: (profileId) => invoke('system_open_server_config_folder', { profileId }) as Promise<void>,

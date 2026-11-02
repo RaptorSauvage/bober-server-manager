@@ -80,7 +80,9 @@ import { copyProfile, moveProfile } from '../../src/main/lib/profileCopyMove'
 import { startDiscordBot, stopDiscordBot, getDiscordBotStatus, applyDiscordBotSettings, restartDiscordBot } from '../../src/main/lib/discordBot'
 import { applyWebDashboardSettings, stopWebDashboard, getWebDashboardStatus } from '../../src/main/lib/webDashboard'
 import { getSystemStaticInfo, getNetworkUsage } from '../../src/main/lib/systemStats'
-import { readStatsHistory, readClusterStatsHistoryForGroups } from '../../src/main/lib/statsHistory'
+import { readStatsHistory, readClusterStatsHistory, readClusterStatsHistoryForGroups } from '../../src/main/lib/statsHistory'
+import { copyProfileConfigFiles } from '../../src/main/lib/profileConfigCopy'
+import { fetchOfficialServerStatus } from '../../src/main/lib/officialServerStatus'
 import { getBackupScheduleStatus, applyBackupSchedule, registerBackupScheduleWatcher } from '../../src/main/lib/schedule'
 import { getInstalledBuildId, readUpdateLog, getUpdateLogPath, steamcmdUpdateEvents } from '../../src/main/lib/steamcmd'
 import { listMapFolders, createMapFolder, deleteMapFolder, openMapFolder } from '../../src/main/lib/mapManagement'
@@ -285,6 +287,16 @@ const methods: Record<string, (params: unknown) => unknown> = {
     const moved = await moveProfile(profile, destInstallDir, newName)
     const profiles = saveProfile(moved)
     return { profile: moved, profiles }
+  },
+  // copyProfileConfigFiles - CreateServerWizard's "copy config from an existing server"
+  // option. Found missing during the IPC-surface audit against the real preload.
+  'profiles.copyConfigFrom': (params) => {
+    const { sourceProfileId, destProfileId } = params as { sourceProfileId: string; destProfileId: string }
+    const source = listProfiles().find((p) => p.id === sourceProfileId)
+    const dest = listProfiles().find((p) => p.id === destProfileId)
+    if (!source) throw new Error(`Unknown profile: ${sourceProfileId}`)
+    if (!dest) throw new Error(`Unknown profile: ${destProfileId}`)
+    copyProfileConfigFiles(source.installDir, dest.installDir)
   },
   // Real write into lib/managerLog.ts's own JSONL file, through the real logManagerEvent -
   // proves a second, differently-shaped real subsystem (file-backed, async persistence)
@@ -546,6 +558,10 @@ const methods: Record<string, (params: unknown) => unknown> = {
   // `os.networkInterfaces()` byte counters twice a second apart. Neither touches Electron.
   'systemStats.getStaticInfo': async () => getSystemStaticInfo(),
   'systemStats.getNetworkUsage': async () => getNetworkUsage(),
+  // fetchOfficialServerStatus - the Dashboard's "ARK Official Server Network" banner, a
+  // real outbound fetch against arkdedicated.com's own status feed. Found missing during
+  // the IPC-surface audit against the real preload.
+  'officialServerStatus.get': async () => fetchOfficialServerStatus(),
   // Real, unmodified subsystems AnalyticsTab.tsx pulls in - five more real files this PoC
   // hadn't touched, none of them Electron-coupled.
   // readStatsHistory reads the real JSONL file monitor.ts's recordStatSample (see "A fifth
@@ -554,6 +570,14 @@ const methods: Record<string, (params: unknown) => unknown> = {
   'statsHistory.get': async (params) => {
     const { profileId, sinceMs, maxPoints } = params as { profileId: string; sinceMs: number | null; maxPoints?: number }
     return readStatsHistory(profileId, sinceMs, maxPoints)
+  },
+  // readClusterStatsHistory - the single-group sibling of readClusterStatsHistoryForGroups
+  // below (ClusterConsole/ClusterDataView's single merged-cluster view, vs. the Cluster
+  // Dashboard's every-group-at-once view). Found missing during the IPC-surface audit
+  // against the real preload's Api interface.
+  'statsHistory.getForGroup': async (params) => {
+    const { profileIds, sinceMs, maxPoints } = params as { profileIds: string[]; sinceMs: number | null; maxPoints?: number }
+    return readClusterStatsHistory(profileIds, sinceMs, maxPoints)
   },
   // getBackupScheduleStatus reads an in-memory armed-timer map that lib/schedule.ts's own
   // `serverEvents.on('status', ...)` (registered as a side effect of importing the module

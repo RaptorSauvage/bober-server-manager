@@ -3230,3 +3230,87 @@ call." Building it showed that's not actually required: `electronShim.ts`'s `she
 round-trips to Rust transparently, so `backup.ts`/`mapManagement.ts`/etc. would port completely
 unmodified, exactly like every `app.*`-shaped file above - worth keeping the wrong guess
 visible, not just the corrected answer.
+
+## The IPC-surface audit: closing the real `window.api` bridge against the real `Api` interface
+
+`frontend/lib/windowApi.ts` (see "The real App.tsx shell" above) was built by mechanically
+merging every earlier per-page entry file's own partial `window.api` implementation - correct
+for the thirty-six pages this PoC had already exercised one at a time, but never checked as a
+whole against the one piece of real source code that actually defines the full surface:
+`shared/types.ts`'s own `export interface Api { ... }`, the same type the real preload and every
+real page already compile against. Two real crashes already surfaced this gap once each
+(`window.api.windowControls.isMaximized` and `window.api.systemStats.get`, both fixed during the
+App.tsx round above) - worth closing properly rather than waiting for the user's own test pass to
+find the next one.
+
+Read the real `Api` interface in full (all ~40 namespaces, ~150 methods) and diffed it against
+`windowApi.ts` twice: once by hand against a handful of namespaces that looked under-covered,
+then exhaustively via two small extraction scripts (leaf method names and top-level namespace
+names, pulled from both files with the same regex and compared with `comm`) - a flattened,
+lossy check (it can't catch a wrong namespace placement if the method name happens to exist
+elsewhere too) but cheap enough to run against the entire interface rather than a sample, and a
+second, independent pass from the targeted manual one. Cross-checked every finding against the
+real `src/preload/index.ts` and the real `src/main/ipc/*.ts` handler it backs, not just the type
+declaration, the same lesson "A sixteenth real page"'s `systemStats.get`/`getStaticInfo` naming
+mismatch already taught: the type, the preload, and the real IPC channel name can each diverge
+from each other, and only reading all three together catches which one is real.
+
+Found and fixed four real gaps, none of them previously exercised by any of this PoC's thirty-six
+pages:
+
+- **`profiles.copyConfigFrom`** - `CreateServerWizard.tsx`'s "copy config from an existing
+  server" option, entirely missing from `windowApi.ts`. Backed by the real, unmodified
+  `copyProfileConfigFiles()` (`src/main/lib/profileConfigCopy.ts`), the same function the real
+  IPC handler calls. Added `profiles.copyConfigFrom` to the sidecar, `profiles_copy_config_from`
+  to the Rust shell, and the bridge method itself; tested standalone against the sidecar (copied
+  config files between two real sandbox profiles without error).
+- **`statsHistory.getForGroup`** (singular) - the single-group sibling of the already-implemented
+  `getForGroups` (plural), used by `ClusterConsole.tsx`/other single-cluster views distinct from
+  the Cluster Dashboard's every-group-at-once view this PoC's "fifteenth real page" already
+  proved. Backed by the real, unmodified `readClusterStatsHistory()`, already imported by the
+  real preload one line above the already-ported `readClusterStatsHistoryForGroups`. Added the
+  same three-layer passthrough; tested standalone (returned `[]` for an empty profile-id list
+  without error, the expected shape for no matching samples).
+- **`officialServerStatus.get`** - the Dashboard's "ARK Official Server Network" status banner, an
+  entire namespace missing from `windowApi.ts` (not just a method on an existing one). Backed by
+  the real, unmodified `fetchOfficialServerStatus()` (`src/main/lib/officialServerStatus.ts`), a
+  real outbound fetch against `arkdedicated.com`'s own status feed - the same "needs real internet
+  this sandbox doesn't have" shape as every other real third-party network call this PoC has
+  already hit (SteamCMD, Modrinth/CurseForge). Tested standalone: the real fetch logic runs and
+  rejects with a plain `fetch failed` (this sandbox has no route to `arkdedicated.com`), which is
+  the correct, honest failure mode - not a code bug, and not something to work around.
+- **`steamcmd.onUpdateLogChanged`'s callback type** - the real `Api` interface and the real
+  preload both type this callback's single argument as `profileId: string`; `windowApi.ts` had it
+  typed as `log: string`. Checked the real wiring in `src/main/ipc/steamcmdInstall.ts`
+  (`webContents.send(IPC.steamcmdUpdateLogChanged, profileId)`) to confirm which name is actually
+  correct - it's `profileId` - and found this PoC's own sidecar/push-event wiring
+  (`sidecar.ts`'s `steamcmdUpdateEvents.on('log', (profileId) => send({ ..., data: profileId }))`)
+  already sent the right value under the wrong parameter name. A type-only fix (the callback is
+  generic at runtime, so nothing was actually broken for a user), but worth matching the real
+  contract exactly rather than leaving a misleading name in place.
+
+Also corrected `statsHistory.getForGroups`' own parameter type while in the area: typed as
+`groupProfileIds: string[]` in `windowApi.ts`, but both the real `Api` interface and the real IPC
+handler (`src/main/ipc/statsHistory.ts`) type it as `groupProfileIds: Record<string, string[]>`
+(a map of group name to that group's profile ids, not a flat list) - another type-only mismatch,
+since the value is passed straight through at runtime regardless of its declared type, but one
+that would have misled anyone reading the bridge's own types as documentation.
+
+Rebuilt all three layers (sidecar → React → `cargo build`, in that order - `frontendDist` is
+embedded into the compiled Rust binary, not read live, so skipping the Rust rebuild after a
+frontend-only change silently keeps serving the old bundle) with a clean build at each step.
+Tested the three new/changed sidecar methods standalone, against the real sidecar bundle, by
+spawning it as a plain child process and driving its stdin/stdout JSON-RPC protocol directly
+(bypassing the GUI entirely for this check, since the point was verifying the real backend logic
+executes without crashing, not re-proving the already-proven transport) - `profiles.copyConfigFrom`
+and `statsHistory.getForGroup` returned cleanly, `officialServerStatus.get` reproduced the
+expected sandbox-network failure. Relaunched the full compiled app afterward (Xvfb + the real
+binary) to confirm a clean `sidecar: ready` startup with no console errors, same as every earlier
+round in this PoC.
+
+With the exhaustive namespace/method-name diff coming back clean (every real namespace and every
+real leaf method name from the full `Api` interface now has a same-named counterpart in
+`windowApi.ts`, including the four gaps above), this closes the IPC-surface audit this PoC's own
+"Fini le portage" round opened: **178 Tauri commands total** (counted directly from `main.rs`'s
+own `generate_handler!` list, same discipline as every earlier count in this document - not
+carried forward by arithmetic from the 176 figure above).
