@@ -1504,7 +1504,7 @@ const methods: Record<string, (params: unknown) => unknown> = {
   // .isInstalled call (not a per-page wrapper's own concern, App.tsx uses it itself to compute
   // installedById before ever rendering Dashboard.tsx), the same real check the ARK ipc
   // handler's own serverIsInstalled uses.
-  'server.isInstalled': (params) => {
+  'server.isInstalled': async (params) => {
     const { profileId } = params as { profileId: string }
     const profile = getProfile(profileId)
     if (!profile) throw new Error(`Unknown profile: ${profileId}`)

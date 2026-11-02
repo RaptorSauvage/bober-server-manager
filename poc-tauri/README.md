@@ -3314,3 +3314,47 @@ real leaf method name from the full `Api` interface now has a same-named counter
 "Fini le portage" round opened: **178 Tauri commands total** (counted directly from `main.rs`'s
 own `generate_handler!` list, same discipline as every earlier count in this document - not
 carried forward by arithmetic from the 176 figure above).
+
+## A real freeze bug, found only by a real user with real data
+
+The first real-world test session on an actual Windows machine with a real, long-used profile
+set (6-20+ real ARK/Minecraft servers, not this PoC's own 3 tiny sandbox profiles) surfaced
+something none of this PoC's own testing ever could: the whole app visibly froze for several
+minutes on navigating to essentially any page, with nothing in the devtools console to explain
+it. Wrong first guess: `officialServerStatus.get()` (added earlier this session - see "The
+IPC-surface audit" above) looked like the obvious suspect, a real unbounded network fetch newly
+wired up. Checked before committing to that theory, and it was wrong -
+`OfficialServerStatusPanel.tsx` (the only real caller of that namespace) turns out to be dead
+code, never actually mounted anywhere in the real app - worth noting here specifically because
+it was the wrong answer, not just the right one.
+
+The real cause: `src/main/lib/detect.ts`'s `isValidArkInstall()` used `fs.existsSync()` -
+synchronous, blocking I/O - and `App.tsx` calls it once per profile, for every profile, via
+`Promise.all` (`window.api.server.isInstalled`), right after the profile list first loads (so
+right around app startup, exactly when a tester would naturally start clicking around - which is
+why it looked like "every page" freezes rather than one specific slow one). Node is
+single-threaded: a synchronous `fs.existsSync()` call inside an IPC handler doesn't just block
+that one call, it blocks the *entire* process - every other pending request (Electron's main
+process in the real app; this PoC's sidecar) queues up behind it until it returns. With a
+handful of fast local-disk profiles (this PoC's own sandbox data) that's unnoticeable; with 6-20+
+real profiles, each doing up to two synchronous existence checks against installs that may sit
+on slower disks or get intercepted per-access by antivirus real-time scanning on a real Windows
+machine, those blocking calls can stack up to the multi-minute freeze actually reported - a
+genuine latent bug in the real, shared `src/main/lib/detect.ts`, not something this PoC
+introduced, just never exposed before because no earlier test ran with anywhere near this many
+real profiles.
+
+Fixed in the real source, not worked around in the PoC: `isValidArkInstall()` and
+`detectGameFromInstall()` (`src/main/lib/detect.ts`) now use `fs/promises.access()` instead of
+`fs.existsSync()`/`.some()`, returning `Promise<boolean>`/`Promise<GameId | null>` - async,
+non-blocking, so a slow check on one profile's install folder can no longer stall every other
+pending IPC call while it resolves. Updated both real call sites
+(`src/main/ipc/serverProcess.ts`'s `serverIsInstalled` handler, `src/main/ipc/profiles.ts`'s
+`profilesImport` handler) and this PoC's sidecar mirror (`server.isInstalled`) to await the new
+async signature, and `tests/detect.test.ts`'s eleven `isValidArkInstall`/`detectGameFromInstall`
+tests to await them too - all 1358 tests across the real app's full suite still pass, plus a
+clean `tsc --noEmit` on the main/node project. Also hardened the real, dead-but-still-correct
+`fetchOfficialServerStatus()` (`src/main/lib/officialServerStatus.ts`) with an explicit 8s
+`AbortSignal.timeout()` while in the area - not the actual bug, but the same no-timeout shape,
+worth closing now that it was already being looked at rather than leaving it for the next person
+to rediscover the hard way.

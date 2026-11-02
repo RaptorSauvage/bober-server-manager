@@ -47,6 +47,16 @@ des utilisateurs de ce manager.
   chacun testé contre le vrai sidecar avant commit. Fait explicitement avant la session de test
   de l'utilisateur, pour éviter un troisième crash du même genre que `windowControls.isMaximized`
   et `systemStats.get` (déjà rencontrés et corrigés pendant le portage d'App.tsx).
+- **Un vrai bug de freeze multi-minute trouvé et corrigé dans le code source réel** (voir README,
+  "A real freeze bug, found only by a real user with real data") - `isValidArkInstall()`
+  (`src/main/lib/detect.ts`) utilisait `fs.existsSync()` (bloquant) et tournait une fois par
+  profil via `Promise.all` au chargement d'`App.tsx`. Avec 3 profils de sandbox ça ne se voyait
+  jamais ; avec les 6-20+ vrais profils de l'utilisateur sur une vraie machine Windows, ça gelait
+  tout le process (Node est mono-thread) plusieurs minutes, sur n'importe quelle page - jamais vu
+  avant parce qu'aucun test précédent n'avait tourné avec autant de vrais profils. Corrigé dans
+  le fichier réel (passage en `fs/promises.access()` async), pas contourné côté PoC - bénéficie
+  donc à l'appli Electron réelle aussi, pas juste au portage. Les 1358 tests + `tsc --noEmit`
+  restent verts après le fix.
 
 ## Ce qui n'existe pas encore et qui est le vrai travail
 

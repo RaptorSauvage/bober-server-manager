@@ -31,7 +31,7 @@ export function registerServerProcessHandlers(webContents: WebContents): void {
 
   ipcMain.handle(IPC.serverUpdate, async (_event, profileId: string) => doUpdateServer(requireProfile(profileId)))
 
-  ipcMain.handle(IPC.serverIsInstalled, (_event, profileId: string) => {
+  ipcMain.handle(IPC.serverIsInstalled, async (_event, profileId: string) => {
     const profile = requireProfile(profileId)
     return isValidArkInstall(profile.installDir, profile.game)
   })

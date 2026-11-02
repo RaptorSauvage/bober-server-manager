@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import fsp from 'node:fs/promises'
 import path from 'node:path'
 import type { ServerMod } from '@shared/types'
 import { resolveConfigDir, readIniFile } from './config'
@@ -18,17 +19,38 @@ function executableCandidates(installDir: string, game: GameId): string[] {
   return [path.join(installDir, ...def.executableWin.split('/')), path.join(installDir, ...def.executableLinux.split('/'))]
 }
 
-export function isValidArkInstall(installDir: string, game: GameId): boolean {
-  return executableCandidates(installDir, game).some((candidate) => fs.existsSync(candidate))
+async function pathExists(candidate: string): Promise<boolean> {
+  try {
+    await fsp.access(candidate)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Async (fs/promises.access, not fs.existsSync) so a slow disk/antivirus-intercepted check on
+// one profile's install folder can't block Node's single event loop thread - and so, by
+// extension, every other pending IPC call - while this runs. Found by a real user with 6-20+
+// real profiles: App.tsx checks every profile's install on every launch
+// (window.api.server.isInstalled), and with that many synchronous fs.existsSync calls run
+// back to back on a real Windows machine, the whole app appeared to freeze on whatever page
+// was clicked right after startup for as long as that loop took to finish.
+export async function isValidArkInstall(installDir: string, game: GameId): Promise<boolean> {
+  for (const candidate of executableCandidates(installDir, game)) {
+    if (await pathExists(candidate)) return true
+  }
+  return false
 }
 
 /** Tries every known game's executable candidates against `installDir` in turn, returning
  *  the first one that matches - used by "Import existing server" so the user doesn't have
  *  to say up front which game they're pointing it at. Returns null if none match (not a
  *  recognized install of any supported game). */
-export function detectGameFromInstall(installDir: string): GameId | null {
-  const match = listGameDefinitions().find((def) => isValidArkInstall(installDir, def.id))
-  return match?.id ?? null
+export async function detectGameFromInstall(installDir: string): Promise<GameId | null> {
+  for (const def of listGameDefinitions()) {
+    if (await isValidArkInstall(installDir, def.id)) return def.id
+  }
+  return null
 }
 
 /** Best-effort: the map is whichever subfolder exists under SavedArks (usually just one). */

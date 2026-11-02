@@ -36,7 +36,11 @@ export function parseOfficialServerStatus(content: string): OfficialServerStatus
 }
 
 export async function fetchOfficialServerStatus(): Promise<OfficialServerStatus> {
-  const response = await fetch(OFFICIAL_SERVER_STATUS_URL)
+  // No timeout here used to mean a slow/filtered connection (a strict firewall, bad DNS, ...)
+  // could hang this call - and so the whole Dashboard mount that awaits it - for minutes instead
+  // of failing fast. Bounded to a plain 8s so a dead network surfaces as a quick error, same as
+  // every other real network call in this app (SteamCMD, Modrinth/CurseForge) already does.
+  const response = await fetch(OFFICIAL_SERVER_STATUS_URL, { signal: AbortSignal.timeout(8000) })
   if (!response.ok) {
     throw new Error(`Failed to fetch official server status (HTTP ${response.status})`)
   }

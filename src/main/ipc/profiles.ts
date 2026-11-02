@@ -73,8 +73,8 @@ export function registerProfileHandlers(webContents: WebContents): void {
     return { profile, profiles }
   })
 
-  ipcMain.handle(IPC.profilesImport, (_event, installDir: string) => {
-    const game = detectGameFromInstall(installDir)
+  ipcMain.handle(IPC.profilesImport, async (_event, installDir: string) => {
+    const game = await detectGameFromInstall(installDir)
     if (!game) {
       throw new Error('No supported ARK server executable found in this folder.')
     }
