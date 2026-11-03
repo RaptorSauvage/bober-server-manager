@@ -64,7 +64,7 @@
     "publish": {
       "provider": "github",
       "owner": "RaptorSauvage",
-      "repo": "test-manager-ark",
+      "repo": "bober-server-manager",
       "releaseType": "release"
     },
     "extraResources": [

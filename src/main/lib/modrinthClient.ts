@@ -15,7 +15,7 @@ const API_BASE = 'https://api.modrinth.com/v2'
 
 /** Modrinth asks API consumers to identify themselves via User-Agent - see
  *  https://docs.modrinth.com/api/ (rate-limiting/etiquette section). */
-const USER_AGENT = 'RaptorSauvage/test-manager-ark (Bober Server Manager; github.com/RaptorSauvage/test-manager-ark)'
+const USER_AGENT = 'RaptorSauvage/bober-server-manager (Bober Server Manager; github.com/RaptorSauvage/bober-server-manager)'
 
 export interface ModrinthSearchHit {
   project_id: string
