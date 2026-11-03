@@ -9,30 +9,30 @@
     <div id="root"></div>
     <script type="module" src="app.js"></script>
     <script type="module">
-      // PoC-only: a way back to this PoC's own demo landing page (index.html), placed inside
-      // the real Tools menu rather than as a standalone button. Deliberately NOT done by editing
-      // TitleBar.tsx (real, unmodified source - the real app has no index.html to go back to, so
-      // this has no real-app equivalent at all) - instead, a MutationObserver watches for the
-      // real `.title-bar-dropdown` React mounts each time the real "Tools" button is clicked
-      // (it only exists in the DOM while that menu is open - see TitleBar.tsx's own
-      // `{openMenu === 'tools' && (...)}`) and appends one extra button to it, styled by the
-      // exact same real app-styles.css rules the dropdown's own real buttons already use.
-      // Re-injects every time the dropdown reopens, since React unmounts (and so removes our
-      // appended node with it) every time it closes.
+      // PoC-only: a way back to this PoC's own demo landing page (index.html), reachable from
+      // the real Settings screen as a "Debug" button rather than a Tools-menu shortcut (the real
+      // app has no index.html to go back to, so this has no real-app equivalent at all).
+      // Deliberately NOT done by editing DataSettingsView.tsx (real, unmodified source) -
+      // instead, a MutationObserver watches for the real `.settings-view` React mount (it exists
+      // in the DOM for as long as the Settings screen is open - see DataSettingsView.tsx's own
+      // top-level `<div className="server-detail settings-view">`) and appends one extra button
+      // to its `.server-detail-header` (the row holding the "<- Back" button and the "Settings"
+      // title), styled by the exact same real app-styles.css rules that header's own real button
+      // already uses. Re-injects every time Settings is reopened, since React unmounts (and so
+      // removes our appended node with it) every time it closes.
       new MutationObserver((mutations) => {
         for (const mutation of mutations) {
           for (const node of mutation.addedNodes) {
-            if (!(node instanceof HTMLElement) || !node.classList.contains('title-bar-dropdown')) continue
-            const trigger = node.previousElementSibling
-            if (!trigger || trigger.textContent.trim() !== 'Tools') continue
-            node.appendChild(document.createElement('hr'))
+            if (!(node instanceof HTMLElement) || !node.classList.contains('settings-view')) continue
+            const header = node.querySelector('.server-detail-header')
+            if (!header) continue
             const button = document.createElement('button')
             button.type = 'button'
-            button.textContent = 'Back to PoC index'
+            button.textContent = 'Debug'
             button.addEventListener('click', () => {
               window.location.href = 'index.html'
             })
-            node.appendChild(button)
+            header.appendChild(button)
           }
         }
       }).observe(document.body, { childList: true, subtree: true })

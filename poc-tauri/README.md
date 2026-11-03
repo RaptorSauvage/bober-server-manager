@@ -3950,3 +3950,50 @@ crate's real Win32 `Shell_NotifyIcon`-based backend, not just the Linux appindic
 sandbox's native build already proved. What neither target-check can confirm is what the tray
 actually looks and behaves like in a real Windows system tray with a real desktop shell hosting
 it - needs the user's own rebuild and a real look.
+
+## Defaulting to the real app, and moving the way back to this PoC's own demo pages
+
+Up to this point the window always opened on this PoC's own `index.html` - the demo landing page
+listing all ~36 standalone test pages - with a "Back to PoC index" shortcut tucked into the real
+Tools dropdown as the only way to reach the real app shell (`app.html`, the real `App.tsx`). That
+made sense while individual IPC modules were still being ported one at a time and needed their own
+isolated test pages, but now that "le portage est quasiment fini" (the user's own words, a few
+rounds back), opening on the demo index by default is backwards for anyone just using the thing.
+Asked for directly: start on the real manager, and move the way back to the demo pages out of the
+Tools menu and into a "Debug" button in Settings instead.
+
+Three changes, all PoC-only glue, none touching real source:
+
+- `tauri.conf.json`'s `app.windows[0]` gained a `"url": "app.html"` field. With no `url` set, Tauri
+  defaults to `frontendDist`'s root (`index.html`) - the one-line fix is naming the other file
+  instead. Nothing in `main.rs` hardcodes which page loads first (checked - no `index.html`/
+  `app.html` reference anywhere in the Rust shell), so this `tauri.conf.json` field was the only
+  place that decision was actually made.
+- `app.html`'s own "Back to PoC index" `MutationObserver` script (watching for the real Tools
+  dropdown to mount and appending a button to it) was removed entirely - that shortcut's whole
+  reason to exist was covering for index.html being unreachable once it stopped being the default,
+  which is no longer true.
+- A new `MutationObserver` in its place watches for the real `.settings-view` wrapper
+  (`DataSettingsView.tsx`'s own top-level `<div className="server-detail settings-view">`, present
+  in the DOM for as long as Settings is open, regardless of which tab is selected) and appends a
+  "Debug" button to its `.server-detail-header` - the row that already holds the real "← Back"
+  button and the "Settings" title, picked specifically because it's the one piece of that page not
+  gated behind any particular tab. Same re-injection pattern as the shortcut it replaces: React
+  unmounts (and removes) that header every time Settings closes, so the observer re-appends on
+  every reopen rather than running once.
+
+Verification: `cargo build` compiled clean (no Rust changed, config/frontend only, as expected).
+Booting under Xvfb confirmed the window now opens directly on the real app shell (title bar reads
+"Bober Server Manager" with the real File/Tools/Help menu, not the PoC index page) - request #1
+confirmed visually. The app's own startup sequence never got past its "Loading..." screen in this
+sandbox, though (`App.tsx` gates its whole UI behind `loaded && minecraftLoaded && startupComplete`,
+the last of which waits on a real `markStartupComplete()` push from the sidecar's own
+`src/main/index.ts` startup chain - the same chain that scans real data dirs, reconciles real
+profiles, etc.) - a pre-existing sandbox limitation unrelated to this change (identical code path
+whether `app.html` is reached by direct URL or by clicking through from `index.html`, and no Rust
+touched this round), not a regression, so the Settings screen itself couldn't be reached to eyeball
+the Debug button directly. Instead the injection script was verified in isolation: the exact same
+script, against a synthetic page reproducing `.settings-view > .server-detail-header`'s real DOM
+shape, run headless via Playwright - confirmed the button appears next to "Back" once that
+structure mounts. Needs the user's own rebuild to confirm end-to-end on a real Windows box with
+real data, same as the tray feature above.
