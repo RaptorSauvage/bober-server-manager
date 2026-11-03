@@ -3895,3 +3895,58 @@ deleted right after, never committed) confirms the config actually deserializes 
 JSON parses as JSON. Still can't confirm runtime behavior from here - no Windows machine, no DWM
 - so whether the line is actually gone this time is, again, something only the user's own rebuild
 can say.
+
+## The system tray - the one deliberately-out-of-scope piece that got ported after all
+
+This PoC's own top-of-file comment has said "window chrome, menus, the tray ... are deliberately
+out of scope" since the very first commit - the whole point was proving the Rust-shell/Node-
+sidecar/webview round trip, not re-porting every piece of the real app. A real user doing
+production QA on this PoC noticed its absence directly ("le menu tray n'a pas été importé"),
+which is the first time anything in that deliberately-out-of-scope list got asked for - so this
+is a real, if scoped, exception to that original boundary, not scope creep.
+
+Ported against the real app's own tray (`createTray`/`buildTrayMenu`/`stopAllServers` in
+`src/main/index.ts`), matching its shape exactly rather than inventing a different one: a tray
+icon with a tooltip, a context menu rebuilt every 5s showing ARK running/total, Minecraft
+running/total, combined players, combined CPU/RAM (all four as disabled label rows, same as the
+real one), then "Ouvrir Bober Server Manager", "Tout arrêter" (enabled only with something
+actually running), and "Quitter" - plus a left click on the icon itself doing the same thing as
+"Ouvrir" (the real app's own `tray.on('click', ...)`), and "close to tray" (hide instead of quit
+when the window's own close button is used, if that setting's on).
+
+The real functions behind all of this (`buildTrayMenu`'s own data gathering, `stopAllServers`'s
+confirm-then-stop) run directly in-process in Electron - this PoC has no in-process equivalent of
+`listProfiles()`/`getStatus()` to call, only the same sidecar RPC boundary every other feature
+here already crosses (`profiles.list`, `server.status`, `minecraft.server.getStatus`,
+`server.stop`, `minecraft.server.stop`, `settings.get` - none of these are new endpoints, all
+already existed for other features). `stop_all_servers`'s own confirm dialog is `rfd::
+MessageDialog` directly rather than anything web-facing, since a tray menu click has no window or
+webview involved at all - a different code path from this PoC's own `window.confirm()` fix
+(`confirmAction()`-gated dashboard buttons), not the same bug reappearing.
+
+One real design decision worth being explicit about: `CloseToTrayState` caches `settings.get`'s
+`closeToTrayEnabled` flag (refreshed every 5s, the same interval the menu counts already refresh
+on) rather than fetching it fresh on every window close the way the real app's own `mainWindow.
+on('close', ...)` does. A real close attempt runs on the same thread class the window's own event
+loop depends on - the exact thread a blocking sidecar call on was shown, earlier in this document
+("The Stop freeze, actually fixed this time"), to freeze the whole window for as long as the call
+took. Rather than risk that exact freeze class a second time for a setting that rarely changes,
+the close handler reads an already-cached value instead - up to 5s stale in the worst case
+(toggling the setting right before a close), an accepted trade for a close button that can never
+hang.
+
+Verified in layers, given how much of this is genuinely new (not a one-line fix like the DWM
+rounds above): compiled clean on a normal `cargo build` (native Linux, this sandbox's own
+target) on the very first attempt, then booted successfully under Xvfb - the tray subsystem
+itself can't fully register here (`libayatana-appindicator`/`dbus-launch` warnings: no D-Bus
+session or tray-hosting desktop environment exists in this headless sandbox at all, a Linux-only,
+sandbox-only limitation with no Windows equivalent) but degrades gracefully rather than crashing
+the app, and the window itself renders normally regardless, confirmed via screenshot. Then,
+same discipline as the two DWM rounds above: `cargo check --target x86_64-pc-windows-gnu`
+(mingw-w64 toolchain, disposable placeholder `binaries/*-pc-windows-gnu.exe` files deleted right
+after) compiled clean too - critically, this recompiles `tray-icon` itself for the Windows target
+specifically (`Compiling tray-icon v0.25.1` appears in that build's own output), exercising the
+crate's real Win32 `Shell_NotifyIcon`-based backend, not just the Linux appindicator one this
+sandbox's native build already proved. What neither target-check can confirm is what the tray
+actually looks and behaves like in a real Windows system tray with a real desktop shell hosting
+it - needs the user's own rebuild and a real look.

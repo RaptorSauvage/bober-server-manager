@@ -2,7 +2,10 @@
 // Rust shell spawn and talk to a persistent Node sidecar that runs the EXISTING, UNMODIFIED
 // application logic (src/main/store.ts), and get a real result back into a Tauri webview via
 // an ordinary `invoke()` call? Everything here is scoped to proving exactly that round trip -
-// window chrome, menus, the tray, and the other ~34 IPC modules are deliberately out of scope.
+// window chrome, menus, and most of the other ~34 IPC modules are deliberately out of scope.
+// The system tray (see build_tray_menu/refresh_tray/stop_all_servers near main()) is the one
+// deliberate exception - added once a real user doing production QA on this PoC noticed its
+// absence directly, not part of the original round-trip-proving scope.
 //
 // Two message shapes travel over the sidecar's stdout, matching sidecar.ts: a response (has
 // "id", answers one specific `call()`) and a push event (has "event" instead, unsolicited -
@@ -29,6 +32,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize};
+use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use rfd::FileDialog;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_shell::ShellExt;
@@ -114,6 +119,16 @@ struct SidecarHandle {
 /// see that command's own doc comment for why this exists instead of relying on the native
 /// maximized/restore state.
 struct MaximizeState(Mutex<Option<(PhysicalPosition<i32>, PhysicalSize<u32>)>>);
+
+/// Cached from the sidecar's own `settings.get` by the tray's periodic `refresh_tray` (every
+/// 5s - see main()) rather than fetched fresh on every window close, the way the real app's own
+/// `mainWindow.on('close', ...)` does it (src/main/index.ts, "checked fresh on every close").
+/// A real close attempt runs on the same thread class the window's own event loop depends on
+/// (see `call_with_timeout`'s own comment on that thread for the full story) - blocking it on a
+/// sidecar round trip here would risk the exact freeze class already fixed once in this file.
+/// Up to 5s stale in the worst case (one refresh interval between toggling the setting and the
+/// next close attempt actually seeing it) - an accepted trade for never blocking a window close.
+struct CloseToTrayState(Mutex<bool>);
 
 /// Writes one JSON-RPC-shaped line to the sidecar's stdin - shared by `SidecarHandle::call`
 /// (Rust calling the sidecar) and the reader task's shell-request handling (answering the
@@ -1703,6 +1718,252 @@ fn handle_shell_request(app_handle: &tauri::AppHandle, method: &str, params: &Va
     }
 }
 
+const TRAY_ID: &str = "main-tray";
+
+fn show_and_focus_main_window(app_handle: &tauri::AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// The five numbers the tray menu's own disabled label rows show - mirrors the real app's own
+/// `buildTrayMenu` (src/main/index.ts) exactly: ARK running/total, Minecraft running/total,
+/// combined players, combined CPU/RAM. `close_to_tray_enabled` rides along on the same refresh
+/// (see `CloseToTrayState`'s own comment) rather than needing a separate sidecar round trip.
+struct TraySummary {
+    ark_running: usize,
+    ark_total: usize,
+    mc_running: usize,
+    mc_total: usize,
+    total_players: i64,
+    total_cpu: f64,
+    total_memory_mb: i64,
+    close_to_tray_enabled: bool,
+}
+
+/// Same shape as the real `buildTrayMenu`'s own data gathering, just over the sidecar RPC
+/// boundary (one `profiles.list`/`minecraft.profiles.list` for the totals, one `server.status`/
+/// `minecraft.server.getStatus` per profile for the running ones' players/CPU/RAM) instead of
+/// the direct in-process calls Electron's main process can make. A profile whose status call
+/// fails is treated as not running rather than aborting the whole summary - one unreachable
+/// profile shouldn't blank out every other real number in the menu.
+async fn fetch_tray_summary(sidecar: &SidecarHandle) -> TraySummary {
+    let ark_profiles = sidecar
+        .call_async("profiles.list", None, 5)
+        .await
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    let mc_profiles = sidecar
+        .call_async("minecraft.profiles.list", None, 5)
+        .await
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+
+    let mut ark_running = 0usize;
+    let mut mc_running = 0usize;
+    let mut total_players = 0i64;
+    let mut total_cpu = 0f64;
+    let mut total_memory_mb = 0i64;
+
+    for profile in &ark_profiles {
+        let Some(profile_id) = profile.get("id").and_then(Value::as_str) else { continue };
+        let Ok(status) = sidecar
+            .call_async("server.status", Some(serde_json::json!({ "profileId": profile_id })), 5)
+            .await
+        else {
+            continue;
+        };
+        if status.get("state").and_then(Value::as_str) != Some("running") {
+            continue;
+        }
+        ark_running += 1;
+        total_players += status.get("players").and_then(Value::as_array).map_or(0, |a| a.len() as i64);
+        total_cpu += status.get("cpu").and_then(Value::as_f64).unwrap_or(0.0);
+        total_memory_mb += status.get("memoryMB").and_then(Value::as_i64).unwrap_or(0);
+    }
+    for profile in &mc_profiles {
+        let Some(profile_id) = profile.get("id").and_then(Value::as_str) else { continue };
+        let Ok(status) = sidecar
+            .call_async("minecraft.server.getStatus", Some(serde_json::json!({ "profileId": profile_id })), 5)
+            .await
+        else {
+            continue;
+        };
+        if status.get("state").and_then(Value::as_str) != Some("running") {
+            continue;
+        }
+        mc_running += 1;
+        total_players += status.get("players").and_then(Value::as_array).map_or(0, |a| a.len() as i64);
+        total_cpu += status.get("cpu").and_then(Value::as_f64).unwrap_or(0.0);
+        total_memory_mb += status.get("memoryMB").and_then(Value::as_i64).unwrap_or(0);
+    }
+
+    let close_to_tray_enabled = sidecar
+        .call_async("settings.get", None, 5)
+        .await
+        .ok()
+        .and_then(|v| v.get("closeToTrayEnabled").and_then(Value::as_bool))
+        .unwrap_or(false);
+
+    TraySummary {
+        ark_running,
+        ark_total: ark_profiles.len(),
+        mc_running,
+        mc_total: mc_profiles.len(),
+        total_players,
+        total_cpu,
+        total_memory_mb,
+        close_to_tray_enabled,
+    }
+}
+
+/// Same five-row shape as the real app's own `buildTrayMenu` (src/main/index.ts): four disabled
+/// label rows, "Ouvrir", "Tout arrêter" (enabled only with something actually running), "Quitter".
+fn build_tray_menu(app_handle: &tauri::AppHandle, summary: &TraySummary) -> tauri::Result<Menu<tauri::Wry>> {
+    let any_running = summary.ark_running + summary.mc_running > 0;
+    let ark_label = MenuItemBuilder::with_id("tray_ark", format!("ARK : {}/{} en cours", summary.ark_running, summary.ark_total))
+        .enabled(false)
+        .build(app_handle)?;
+    let mc_label = MenuItemBuilder::with_id(
+        "tray_mc",
+        format!("Minecraft : {}/{} en cours", summary.mc_running, summary.mc_total),
+    )
+    .enabled(false)
+    .build(app_handle)?;
+    let players_label = MenuItemBuilder::with_id("tray_players", format!("Joueurs : {}", summary.total_players))
+        .enabled(false)
+        .build(app_handle)?;
+    let resources_label = MenuItemBuilder::with_id(
+        "tray_resources",
+        format!("CPU : {:.1}% · RAM : {} Mo", summary.total_cpu, summary.total_memory_mb),
+    )
+    .enabled(false)
+    .build(app_handle)?;
+    let stop_all = MenuItemBuilder::with_id("tray_stop_all", "Tout arrêter").enabled(any_running).build(app_handle)?;
+
+    MenuBuilder::new(app_handle)
+        .items(&[&ark_label, &mc_label, &players_label, &resources_label])
+        .separator()
+        .text("tray_open", "Ouvrir Bober Server Manager")
+        .separator()
+        .item(&stop_all)
+        .separator()
+        .text("tray_quit", "Quitter")
+        .build()
+}
+
+/// Rebuilds the tray's menu with fresh numbers and updates `CloseToTrayState` - called once
+/// right after the tray is created and then every 5s (see main()'s own spawned thread) since
+/// the real app rebuilds on the same interval for the same reason (its own comment: "the
+/// running counts/players/CPU/RAM lines would otherwise go stale the moment any server starts,
+/// stops, or a player joins/leaves while the tray's just sitting there").
+async fn refresh_tray(app_handle: &tauri::AppHandle) {
+    let sidecar = app_handle.state::<SidecarHandle>();
+    let summary = fetch_tray_summary(&sidecar).await;
+    *app_handle.state::<CloseToTrayState>().0.lock().unwrap() = summary.close_to_tray_enabled;
+    if let Some(tray) = app_handle.tray_by_id(TRAY_ID) {
+        if let Ok(menu) = build_tray_menu(app_handle, &summary) {
+            let _ = tray.set_menu(Some(menu));
+        }
+    }
+}
+
+/// Mirrors the real app's own `stopAllServers` (src/main/index.ts): confirm first (a bigger
+/// blast radius than any single Dashboard card's own Stop button - this disconnects every
+/// player on every running server at once), then stop everything that was actually running
+/// concurrently, same as the real `Promise.all`. The confirm itself is `rfd::MessageDialog`
+/// directly rather than anything web-facing - this runs with no window/webview involved at all,
+/// triggered from a native tray menu click, so there's no `window.confirm()` to go through (see
+/// this PoC's own "Closing the confirmAction()/window.confirm() bug for real" for that other,
+/// unrelated confirm path). Fire-and-forget on the actual stop calls once confirmed, same
+/// reasoning as every individual Stop button elsewhere in this app: the real stop sequence's
+/// progress already reaches the UI live via the existing `server-status` push event, so nothing
+/// here needs to block on - or even know - when each one actually finishes.
+async fn stop_all_servers(app_handle: &tauri::AppHandle) {
+    let sidecar = app_handle.state::<SidecarHandle>();
+    let ark_profiles = sidecar
+        .call_async("profiles.list", None, 5)
+        .await
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    let mc_profiles = sidecar
+        .call_async("minecraft.profiles.list", None, 5)
+        .await
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+
+    let mut ark_running_ids = Vec::new();
+    for profile in &ark_profiles {
+        let Some(id) = profile.get("id").and_then(Value::as_str) else { continue };
+        let Ok(status) = sidecar
+            .call_async("server.status", Some(serde_json::json!({ "profileId": id })), 5)
+            .await
+        else {
+            continue;
+        };
+        if status.get("state").and_then(Value::as_str) == Some("running") {
+            ark_running_ids.push(id.to_string());
+        }
+    }
+    let mut mc_running_ids = Vec::new();
+    for profile in &mc_profiles {
+        let Some(id) = profile.get("id").and_then(Value::as_str) else { continue };
+        let Ok(status) = sidecar
+            .call_async("minecraft.server.getStatus", Some(serde_json::json!({ "profileId": id })), 5)
+            .await
+        else {
+            continue;
+        };
+        if status.get("state").and_then(Value::as_str) == Some("running") {
+            mc_running_ids.push(id.to_string());
+        }
+    }
+
+    let total = ark_running_ids.len() + mc_running_ids.len();
+    if total == 0 {
+        return;
+    }
+
+    let description = format!(
+        "Arrêter les {total} serveur{} en cours ?\n\nTous les joueurs connectés seront déconnectés.",
+        if total > 1 { "s" } else { "" }
+    );
+    let confirmed = tauri::async_runtime::spawn_blocking(move || {
+        rfd::MessageDialog::new()
+            .set_title("Bober Server Manager")
+            .set_description(description)
+            .set_level(rfd::MessageLevel::Warning)
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .show()
+    })
+    .await
+    .map(|result| result == rfd::MessageDialogResult::Yes)
+    .unwrap_or(false);
+    if !confirmed {
+        return;
+    }
+
+    for id in ark_running_ids {
+        let app_handle = app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            let sidecar = app_handle.state::<SidecarHandle>();
+            let _ = sidecar.call_async("server.stop", Some(serde_json::json!({ "profileId": id })), 120).await;
+        });
+    }
+    for id in mc_running_ids {
+        let app_handle = app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            let sidecar = app_handle.state::<SidecarHandle>();
+            let _ = sidecar.call_async("minecraft.server.stop", Some(serde_json::json!({ "profileId": id })), 120).await;
+        });
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -1711,6 +1972,67 @@ fn main() {
             let handle = spawn_sidecar(app);
             app.manage(handle);
             app.manage(MaximizeState(Mutex::new(None)));
+            app.manage(CloseToTrayState(Mutex::new(false)));
+
+            // Built with an empty (all-zero) TraySummary first - the sidecar may not have
+            // finished its own startup yet at this exact point (spawn_sidecar above only
+            // starts it, doesn't wait for it), so this gets the tray itself on screen
+            // immediately rather than making the user wait on the sidecar just to see an
+            // icon - then the background refresh thread below fills in real numbers within
+            // its first tick, same "show immediately, fill in real data shortly after"
+            // shape as the window itself (see createWindow's own reasoning in the real
+            // src/main/index.ts for why - this mirrors it, just for the tray instead).
+            let placeholder = TraySummary {
+                ark_running: 0,
+                ark_total: 0,
+                mc_running: 0,
+                mc_total: 0,
+                total_players: 0,
+                total_cpu: 0.0,
+                total_memory_mb: 0,
+                close_to_tray_enabled: false,
+            };
+            let menu = build_tray_menu(app.handle(), &placeholder)?;
+            TrayIconBuilder::with_id(TRAY_ID)
+                .icon(tauri::include_image!("icons/icon.png"))
+                .tooltip("Bober Server Manager")
+                .menu(&menu)
+                .on_menu_event(|app_handle, event| {
+                    let app_handle = app_handle.clone();
+                    match event.id().0.as_str() {
+                        "tray_open" => show_and_focus_main_window(&app_handle),
+                        "tray_stop_all" => {
+                            tauri::async_runtime::spawn(async move {
+                                stop_all_servers(&app_handle).await;
+                            });
+                        }
+                        "tray_quit" => app_handle.exit(0),
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    // Left click only - matches the real tray's own `tray.on('click', ...)`
+                    // (src/main/index.ts), which Electron likewise only ever fires for a left
+                    // click; a right click opens the context menu natively on both platforms
+                    // without needing a handler here at all.
+                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                        show_and_focus_main_window(tray.app_handle());
+                    }
+                })
+                .build(app)?;
+
+            // No tokio time feature pulled in just for this - a plain OS thread sleeping
+            // between ticks matches the std-only tools (mpsc, Mutex) the rest of this file's
+            // own sidecar plumbing already uses, and five seconds is the same interval the
+            // real app's own tray refresh uses (see buildTrayMenu's doc comment in
+            // src/main/index.ts) for the same reason: cheap in-memory-ish reads, not
+            // something that needs to be any more real-time than that.
+            let refresh_handle = app.handle().clone();
+            std::thread::spawn(move || loop {
+                tauri::async_runtime::block_on(refresh_tray(&refresh_handle));
+                std::thread::sleep(std::time::Duration::from_secs(5));
+            });
+
             Ok(())
         })
         // A real report, see window_toggle_maximize's own doc comment for the full story: a
@@ -1723,6 +2045,21 @@ fn main() {
         // to the top of the screen, etc. - which still goes through the real native path this
         // PoC's own command bypasses.
         .on_window_event(|window, event| {
+            // "Close to tray" (Settings > Startup & Safety) - mirrors the real app's own
+            // mainWindow.on('close', ...) (src/main/index.ts): hide instead of actually
+            // closing when the setting's on, so every managed server (tracked independently
+            // of this window, same as the real app) keeps running. Reads the *cached* flag
+            // (see CloseToTrayState's own comment on why a fresh sidecar call right here
+            // would be a real freeze risk) rather than the live setting.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let close_to_tray = *window.state::<CloseToTrayState>().0.lock().unwrap();
+                if close_to_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                return;
+            }
+
             if !matches!(event, tauri::WindowEvent::Resized(_)) {
                 return;
             }

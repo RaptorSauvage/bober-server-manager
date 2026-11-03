@@ -74,6 +74,20 @@ des utilisateurs de ce manager.
   session" de "un marqueur périmé d'une session précédente". Un seul appelant
   (`doStartServer`), donc aucun risque pour les 5 autres usages de la fonction partagée
   sous-jacente. Les 1359 tests (dont un nouveau) + `tsc --noEmit` restent verts.
+- **Le system tray est porté** (voir README, "The system tray - the one deliberately-out-of-scope
+  piece that got ported after all") - jusque-là explicitement hors scope depuis le tout premier
+  commit de ce PoC, ajouté une fois qu'un vrai utilisateur en QA production a remarqué son
+  absence. Même forme que le vrai `createTray`/`buildTrayMenu`/`stopAllServers` (`src/main/
+  index.ts`) : icône + tooltip, menu reconstruit toutes les 5s (ARK/Minecraft en cours, joueurs,
+  CPU/RAM), "Ouvrir"/clic gauche, "Tout arrêter" (confirmation native `rfd` puisqu'aucune fenêtre
+  n'est impliquée ici), "Quitter", et "close to tray" sur le bouton de fermeture de la fenêtre -
+  via les mêmes endpoints sidecar que le reste de ce PoC utilise déjà (`profiles.list`,
+  `server.status`, `server.stop`, leurs équivalents Minecraft, `settings.get`), aucun nouveau
+  endpoint créé. Vérifié par `cargo build` natif + boot Xvfb (le tray lui-même ne peut pas
+  s'enregistrer dans ce sandbox sans bus D-Bus, dégrade proprement sans planter l'appli) et par
+  `cargo check --target x86_64-pc-windows-gnu`, qui recompile spécifiquement le backend Windows
+  réel de `tray-icon` (`Shell_NotifyIcon`), pas seulement le backend Linux que le sandbox prouve
+  déjà - reste un vrai test humain sur Windows à faire pour confirmer le rendu/comportement réel.
 
 ## Ce qui n'existe pas encore et qui est le vrai travail
 
