@@ -8,3 +8,6 @@ release
 .vscode/*
 !.vscode/extensions.json
 .idea
+
+# Tauri shell feasibility PoC - lives only on the claude/tauri-poc branch, never on this one.
+/poc-tauri/
