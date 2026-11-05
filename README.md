@@ -1220,7 +1220,7 @@ administrator" without installing anything.
 
 For the in-app **Check for updates** button (see Features above) to find a new version,
 a build has to actually reach this repo's [GitHub
-Releases](https://github.com/RaptorSauvage/test-manager-ark/releases) - `electron-builder`
+Releases](https://github.com/RaptorSauvage/bober-server-manager/releases) - `electron-builder`
 is already configured (`build.publish` in `package.json`) to look there.
 
 1. Bump `version` in `package.json` (electron-updater compares this against the latest
