@@ -13,19 +13,28 @@
       // the real Settings screen as a "Debug" button rather than a Tools-menu shortcut (the real
       // app has no index.html to go back to, so this has no real-app equivalent at all).
       // Deliberately NOT done by editing DataSettingsView.tsx (real, unmodified source) -
-      // instead, a MutationObserver watches for the real `.settings-view` React mount (it exists
-      // in the DOM for as long as the Settings screen is open - see DataSettingsView.tsx's own
-      // top-level `<div className="server-detail settings-view">`) and appends one extra button
-      // to its `.server-detail-header` (the row holding the "<- Back" button and the "Settings"
-      // title), styled by the exact same real app-styles.css rules that header's own real button
-      // already uses. Re-injects every time Settings is reopened, since React unmounts (and so
-      // removes our appended node with it) every time it closes.
+      // instead, a MutationObserver watches for the real `.settings-view` React mount and
+      // appends one extra button to its `.server-detail-header`, styled by the exact same real
+      // app-styles.css rules that header's own real button already uses. Re-injects every time
+      // Settings is reopened, since React unmounts (and so removes our appended node with it)
+      // every time it closes.
+      //
+      // `.settings-view` alone isn't unique to the Settings screen, though - ServerDetail/
+      // index.tsx and MinecraftServerDetail/index.tsx (the per-server detail screens, which
+      // default to their own "Analytics" tab) use the exact same `className="server-detail
+      // settings-view"` wrapper and `.server-detail-header` for their own "<- Back" + profile
+      // name row (found the hard way: the Debug button first showed up on a server's Analytics
+      // tab instead of Settings). DataSettingsView.tsx's own header is the only one of the
+      // three whose <h1> is the literal text "Settings" rather than a server's name, so that's
+      // the actual match condition - same shape as the removed Tools-menu shortcut checking
+      // `trigger.textContent.trim() === 'Tools'` before appending to it.
       new MutationObserver((mutations) => {
         for (const mutation of mutations) {
           for (const node of mutation.addedNodes) {
             if (!(node instanceof HTMLElement) || !node.classList.contains('settings-view')) continue
             const header = node.querySelector('.server-detail-header')
-            if (!header) continue
+            const heading = header?.querySelector('h1')
+            if (!header || heading?.textContent?.trim() !== 'Settings') continue
             const button = document.createElement('button')
             button.type = 'button'
             button.textContent = 'Debug'
