@@ -98,8 +98,12 @@ struct ShellRequest {
 
 type PendingMap = Arc<Mutex<HashMap<i64, mpsc::Sender<RpcResponse>>>>;
 /// Shared with the background reader task so it can write shell-request responses back onto
-/// the sidecar's stdin itself, from inside the same task that's reading its stdout.
-type SharedChild = Arc<Mutex<CommandChild>>;
+/// the sidecar's stdin itself, from inside the same task that's reading its stdout. `Option`
+/// rather than a bare `CommandChild`: shutdown (see main()'s own `RunEvent::Exit` handler) needs
+/// to `.take()` the child out to call its `kill()`, which consumes `self` - there's no other way
+/// to get an owned `CommandChild` out of a `Mutex` that's also kept alive by other `Arc` clones
+/// (the reader task's own `reader_child`) at that point.
+type SharedChild = Arc<Mutex<Option<CommandChild>>>;
 
 /// Owns the sidecar child (via tauri-plugin-shell's `CommandChild`, not a raw `std::process`
 /// handle - see "Sidecar packaging" in README.md) plus the map a background async task
@@ -135,7 +139,9 @@ struct CloseToTrayState(Mutex<bool>);
 /// sidecar calling Rust), since both are just "serialize this, write it, done."
 fn write_line(child: &SharedChild, value: &impl Serialize) -> Result<(), String> {
     let line = serde_json::to_string(value).map_err(|e| e.to_string())? + "\n";
-    child.lock().unwrap().write(line.as_bytes()).map_err(|e| e.to_string())
+    let mut guard = child.lock().unwrap();
+    let child = guard.as_mut().ok_or_else(|| "sidecar already shut down".to_string())?;
+    child.write(line.as_bytes()).map_err(|e| e.to_string())
 }
 
 impl SidecarHandle {
@@ -1594,6 +1600,18 @@ fn spawn_sidecar(app: &tauri::App) -> SidecarHandle {
             .expect("failed to resolve the 'sidecar-bin' sidecar - check tauri.conf.json's bundle.externalBin and run sidecar/build-sea.mjs first"),
     };
 
+    // Fixes a real report: quitting the Manager left both the sidecar and the Discord bot
+    // running as orphaned background processes (visible in Task Manager, still holding the
+    // Discord gateway connection open) - this app never killed either of them, it just exited
+    // and left them behind. `set_process_group(true)` puts the sidecar in its own process group
+    // on Unix, or a Windows Job Object on Windows (tauri-plugin-shell's own process/job_object.rs)
+    // - and since bot-bin is spawned *by* the sidecar (discordBot.ts's own fork()/spawn(), not by
+    // Rust), it inherits that same group/job automatically rather than needing to be tracked
+    // separately. Without this, `CommandChild::kill()` (used below, in main()'s own
+    // `RunEvent::Exit` handler) only reaches the sidecar itself, not whatever it spawned - see
+    // that handler's own comment for why killing at all was missing in the first place.
+    let sidecar_command = sidecar_command.set_process_group(true);
+
     // Node's libuv threadpool defaults to only 4 worker threads, shared by every async fs/dns
     // call the sidecar makes. Found via a real freeze report: isValidArkInstall() (now async,
     // see detect.ts) checks every profile's install on launch - with a handful of sandbox
@@ -1630,7 +1648,7 @@ fn spawn_sidecar(app: &tauri::App) -> SidecarHandle {
     let (mut rx, child) = sidecar_command
         .spawn()
         .unwrap_or_else(|e| panic!("failed to spawn sidecar: {e}"));
-    let child: SharedChild = Arc::new(Mutex::new(child));
+    let child: SharedChild = Arc::new(Mutex::new(Some(child)));
 
     let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
     let reader_pending = pending.clone();
@@ -2252,6 +2270,30 @@ fn main() {
             dialog_select_profile_file,
             profiles_import_from_file
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // Real report: closing the Manager left the sidecar (and the Discord bot it spawns
+            // - see spawn_sidecar's own `set_process_group` comment) running as orphaned
+            // background processes. Nothing anywhere in this file ever killed either of them on
+            // exit - the whole Tauri app just terminated and left its child process tree behind,
+            // the same gap `kill_on_drop`/Drop-based cleanup wouldn't reliably close either,
+            // since there's no guarantee Drop glue for long-lived managed state runs before the
+            // process actually exits. RunEvent::Exit fires once, right before that actually
+            // happens (after any window-close/tray-quit/app_quit path already decided to quit,
+            // not a point where exiting could still be cancelled), making it the one place a
+            // single explicit cleanup call reliably covers every quit path.
+            if let tauri::RunEvent::Exit = event {
+                let sidecar = app_handle.state::<SidecarHandle>();
+                // Best-effort graceful bot shutdown first (same RPC bot_stop uses, which calls
+                // the real stopDiscordBot() - closes the Discord gateway connection cleanly
+                // rather than yanking it). Short timeout: quitting the app shouldn't hang
+                // noticeably even if the sidecar's already wedged, and the process-group kill
+                // right after is the real guarantee either way, not this.
+                let _ = sidecar.call_with_timeout("bot.stop", None, 3);
+                if let Some(child) = sidecar.child.lock().unwrap().take() {
+                    let _ = child.kill();
+                }
+            }
+        });
 }
