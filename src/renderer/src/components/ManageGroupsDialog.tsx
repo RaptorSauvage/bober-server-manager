@@ -41,6 +41,20 @@ export default function ManageGroupsDialog({ profiles, onProfilesChange, onClose
     return profiles.filter((p) => p.group.trim() === name).length
   }
 
+  // Takes a function of the *freshly re-fetched* settings rather than a plain patch object -
+  // this dialog's own `settings` snapshot (fetched once on mount) can go stale if something
+  // else saves settings while it's open (the Settings screen, another window, the web
+  // dashboard's own HTTP routes), and settings.save() replaces the whole stored object rather
+  // than merging it, so computing the patch from a stale base risks losing those other changes
+  // even though this dialog clearly only means to touch its own group fields.
+  async function persistSettings(computePatch: (current: AppSettings) => Partial<AppSettings>): Promise<AppSettings> {
+    const current = await window.api.settings.get()
+    const next = { ...current, ...computePatch(current) }
+    await window.api.settings.save(next)
+    setSettings(next)
+    return next
+  }
+
   async function createGroup(): Promise<void> {
     const trimmed = newGroupName.trim()
     if (!trimmed || !settings) return
@@ -49,9 +63,7 @@ export default function ManageGroupsDialog({ profiles, onProfilesChange, onClose
       return
     }
     setError('')
-    const updated = { ...settings, registeredGroups: [...settings.registeredGroups, trimmed] }
-    await window.api.settings.save(updated)
-    setSettings(updated)
+    await persistSettings((current) => ({ registeredGroups: [...current.registeredGroups, trimmed] }))
     setNewGroupName('')
   }
 
@@ -73,20 +85,19 @@ export default function ManageGroupsDialog({ profiles, onProfilesChange, onClose
     setBusy(true)
     try {
       const renameInList = (list: string[]): string[] => list.map((n) => (n === oldName ? trimmed : n))
-      // oldName may only have existed implicitly (a profile's free-text group, never
-      // explicitly registered) - add it first so the rename below still has something to act
-      // on, same as how a brand new group gets registered the first time it's used.
-      const registeredWithOld = settings.registeredGroups.includes(oldName)
-        ? settings.registeredGroups
-        : [...settings.registeredGroups, oldName]
-      const nextSettings: AppSettings = {
-        ...settings,
-        registeredGroups: renameInList(registeredWithOld),
-        groupOrder: renameInList(settings.groupOrder),
-        collapsedGroups: renameInList(settings.collapsedGroups)
-      }
-      await window.api.settings.save(nextSettings)
-      setSettings(nextSettings)
+      await persistSettings((current) => {
+        // oldName may only have existed implicitly (a profile's free-text group, never
+        // explicitly registered) - add it first so the rename below still has something to act
+        // on, same as how a brand new group gets registered the first time it's used.
+        const registeredWithOld = current.registeredGroups.includes(oldName)
+          ? current.registeredGroups
+          : [...current.registeredGroups, oldName]
+        return {
+          registeredGroups: renameInList(registeredWithOld),
+          groupOrder: renameInList(current.groupOrder),
+          collapsedGroups: renameInList(current.collapsedGroups)
+        }
+      })
 
       const affected = profiles.filter((p) => p.group.trim() === oldName)
       let latest = profiles
@@ -111,14 +122,11 @@ export default function ManageGroupsDialog({ profiles, onProfilesChange, onClose
     setBusy(true)
     setError('')
     try {
-      const nextSettings: AppSettings = {
-        ...settings,
-        registeredGroups: settings.registeredGroups.filter((n) => n !== name),
-        groupOrder: settings.groupOrder.filter((n) => n !== name),
-        collapsedGroups: settings.collapsedGroups.filter((n) => n !== name)
-      }
-      await window.api.settings.save(nextSettings)
-      setSettings(nextSettings)
+      await persistSettings((current) => ({
+        registeredGroups: current.registeredGroups.filter((n) => n !== name),
+        groupOrder: current.groupOrder.filter((n) => n !== name),
+        collapsedGroups: current.collapsedGroups.filter((n) => n !== name)
+      }))
 
       const affected = profiles.filter((p) => p.group.trim() === name)
       let latest = profiles

@@ -184,7 +184,17 @@ export default function DataSettingsView({ onBack }: DataSettingsViewProps): JSX
   }
 
   async function save(): Promise<void> {
+    // Re-fetches rather than spreading this screen's own `settings` state as the base: this is
+    // the comprehensive settings editor, so it's right for its own in-progress edits to win on
+    // every field it renders, but `settings` was fetched once on open and settings.save()
+    // replaces the whole stored object rather than merging it - if another window (or the web
+    // dashboard's own HTTP routes) saved something in the meantime, spreading a since-stale
+    // `settings` as the base would silently wipe that out. Spreading the fresh fetch first,
+    // then this screen's own state on top, keeps this screen authoritative for what it edits
+    // without clobbering changes made elsewhere to fields it doesn't.
+    const current = await window.api.settings.get()
     const toSave: AppSettings = {
+      ...current,
       ...settings,
       discordBotMaintenanceWhitelistIds: parseIdList(discordBotWhitelistInput),
       discordBotManagerWhitelistIds: parseIdList(discordBotManagerWhitelistInput),

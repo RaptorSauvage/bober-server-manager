@@ -74,7 +74,14 @@ export default function SteamCmdView({ onBack }: SteamCmdViewProps): JSX.Element
   }
 
   async function save(): Promise<void> {
-    const saved = await window.api.settings.save(settings)
+    // Only steamCmdPath is actually edited on this screen, but settings.save() replaces the
+    // whole stored object rather than merging it - saving the local `settings` snapshot as-is
+    // (fetched once on mount, same as DataSettingsView's own fuller editor) would silently wipe
+    // out every other setting changed elsewhere since this screen was opened. Re-fetching fresh
+    // and merging just the one field this screen owns avoids that.
+    const current = await window.api.settings.get()
+    const next = { ...current, steamCmdPath: settings.steamCmdPath }
+    const saved = await window.api.settings.save(next)
     setSettings(saved)
     setStatus('Saved')
     setTimeout(() => setStatus(''), 2000)

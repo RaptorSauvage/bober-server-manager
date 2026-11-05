@@ -89,7 +89,18 @@ export default function Dashboard({
     return () => document.removeEventListener('click', close)
   }, [openMenuId])
 
-  async function persistSettings(next: AppSettings): Promise<void> {
+  // Patch-based rather than taking a full AppSettings snapshot: this component fetches
+  // `settings` once on mount and (since Dashboard now stays mounted for the whole session -
+  // see "Keep Dashboard/MinecraftDashboard mounted" above) never refreshes it on its own, so
+  // by the time a group gets reordered/collapsed hours into a session, Settings or another
+  // screen may well have saved changes this component's own `settings` state never saw. Saving
+  // `{ ...settings, ... }` straight from that stale snapshot would silently wipe those changes
+  // back out, since settings.save() replaces the whole stored object rather than merging it.
+  // Re-fetching right before the write and merging the patch onto *that* keeps this screen's
+  // group-related writes from ever clobbering settings changed elsewhere in the meantime.
+  async function persistSettings(patch: Partial<AppSettings>): Promise<void> {
+    const current = await window.api.settings.get()
+    const next = { ...current, ...patch }
     setSettings(next)
     await window.api.settings.save(next)
   }
@@ -119,7 +130,7 @@ export default function Dashboard({
   async function setProfileGroup(profile: ServerProfile, groupName: string): Promise<void> {
     const trimmed = groupName.trim()
     if (trimmed && settings && !settings.registeredGroups.includes(trimmed)) {
-      await persistSettings({ ...settings, registeredGroups: [...settings.registeredGroups, trimmed] })
+      await persistSettings({ registeredGroups: [...settings.registeredGroups, trimmed] })
     }
     const updated = await window.api.profiles.save({ ...profile, group: trimmed })
     onProfilesChange(updated)
@@ -130,7 +141,7 @@ export default function Dashboard({
     const next = new Set(settings.collapsedGroups)
     if (collapsed) next.add(name)
     else next.delete(name)
-    void persistSettings({ ...settings, collapsedGroups: Array.from(next) })
+    void persistSettings({ collapsedGroups: Array.from(next) })
   }
 
   async function handleGroupDrop(targetName: string): Promise<void> {
@@ -142,7 +153,7 @@ export default function Dashboard({
     const toIndex = reordered.indexOf(targetName)
     if (fromIndex === -1 || toIndex === -1) return
     reordered.splice(toIndex, 0, reordered.splice(fromIndex, 1)[0])
-    await persistSettings({ ...settings, groupOrder: reordered })
+    await persistSettings({ groupOrder: reordered })
   }
 
   function mapDisplayName(mapId: string): string {

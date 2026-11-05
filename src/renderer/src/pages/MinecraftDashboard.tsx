@@ -83,7 +83,13 @@ export default function MinecraftDashboard({
     return () => document.removeEventListener('click', close)
   }, [openMenuId])
 
-  async function persistSettings(next: AppSettings): Promise<void> {
+  // Patch-based for the same reason as ARK's own Dashboard.tsx persistSettings: this
+  // component's `settings` snapshot goes stale once Dashboard/MinecraftDashboard stay mounted
+  // for the whole session, so saving a full `{ ...settings, ... }` copy risks clobbering
+  // settings changed elsewhere since mount. Re-fetching fresh right before the write avoids it.
+  async function persistSettings(patch: Partial<AppSettings>): Promise<void> {
+    const current = await window.api.settings.get()
+    const next = { ...current, ...patch }
     setSettings(next)
     await window.api.settings.save(next)
   }
@@ -106,7 +112,7 @@ export default function MinecraftDashboard({
     const next = new Set(settings.minecraftCollapsedGroups)
     if (collapsed) next.add(name)
     else next.delete(name)
-    void persistSettings({ ...settings, minecraftCollapsedGroups: Array.from(next) })
+    void persistSettings({ minecraftCollapsedGroups: Array.from(next) })
   }
 
   async function handleGroupDrop(targetName: string): Promise<void> {
@@ -118,7 +124,7 @@ export default function MinecraftDashboard({
     const toIndex = reordered.indexOf(targetName)
     if (fromIndex === -1 || toIndex === -1) return
     reordered.splice(toIndex, 0, reordered.splice(fromIndex, 1)[0])
-    await persistSettings({ ...settings, minecraftGroupOrder: reordered })
+    await persistSettings({ minecraftGroupOrder: reordered })
   }
 
   // One read of server.properties per profile, for the server-port shown on its card - not
