@@ -1,6 +1,6 @@
 {
-  "name": "bober-server-manager",
-  "version": "0.1.0",
+  "name": "ark-server-manager",
+  "version": "6.3.0",
   "description": "Bober Server Manager",
   "main": "out/main/index.js",
   "author": "",
@@ -64,7 +64,7 @@
     "publish": {
       "provider": "github",
       "owner": "RaptorSauvage",
-      "repo": "test-manager-ark",
+      "repo": "bober-server-manager",
       "releaseType": "release"
     },
     "extraResources": [

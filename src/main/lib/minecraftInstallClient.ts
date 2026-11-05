@@ -41,7 +41,7 @@
  * Paper install. Migrated to the "Fill" v3 API, PaperMC's own documented replacement.
  */
 
-const USER_AGENT = 'RaptorSauvage/test-manager-ark (Bober Server Manager; github.com/RaptorSauvage/test-manager-ark)'
+const USER_AGENT = 'RaptorSauvage/bober-server-manager (Bober Server Manager; github.com/RaptorSauvage/bober-server-manager)'
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { headers: { 'User-Agent': USER_AGENT } })
