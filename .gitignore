@@ -9,5 +9,11 @@ release
 !.vscode/extensions.json
 .idea
 
-# Tauri shell feasibility PoC - lives only on the claude/tauri-poc branch, never on this one.
-/poc-tauri/
+# No /poc-tauri/ ignore rule on this branch (claude/tauri-poc) - unlike on
+# claude/ark-ascended-server-control-a03zpe and main, where poc-tauri/ doesn't exist and that
+# line keeps it from ever being accidentally tracked there, this branch's whole point IS the
+# poc-tauri/ tree, so ignoring it here would silently stop `git add` from picking up real changes
+# (hit exactly that: `git add poc-tauri/...` refused, "ignored by one of your .gitignore files",
+# after merging in a commit from that other branch that added the line). Deliberately removed
+# here rather than kept as dead weight - a future merge FROM that branch may re-add it, at which
+# point it needs removing again rather than left in place.
