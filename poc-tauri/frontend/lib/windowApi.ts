@@ -88,6 +88,7 @@ declare global {
         copyConfigFrom: (sourceProfileId: string, destProfileId: string) => Promise<void>
         export: (profileId: string, filePath: string) => Promise<void>
         importFromFile: (filePath: string) => Promise<{ profile: ServerProfile; profiles: ServerProfile[] }>
+        importFromInstall: (installDir: string) => Promise<{ profile: ServerProfile; profiles: ServerProfile[] }>
         onChanged: (callback: (profiles: ServerProfile[]) => void) => () => void
       }
       server: {
@@ -331,6 +332,7 @@ declare global {
           restore: (profileId: string, filePath: string) => Promise<void>
           openFolder: (profileId: string) => Promise<void>
           onCreated: (callback: (profileId: string) => void) => () => void
+          getScheduleStatus: (profileId: string) => Promise<BackupScheduleStatus>
           getLog: (profileId: string) => Promise<BackupLogEntry[]>
           onLogChanged: (callback: (profileId: string, entry: BackupLogEntry) => void) => () => void
         }
@@ -393,6 +395,8 @@ export function installWindowApi(): void {
       export: (profileId, filePath) => invoke('profiles_export', { profileId, filePath }) as Promise<void>,
       importFromFile: (filePath) =>
         invoke('profiles_import_from_file', { filePath }) as Promise<{ profile: ServerProfile; profiles: ServerProfile[] }>,
+      importFromInstall: (installDir) =>
+        invoke('profiles_import_from_install', { installDir }) as Promise<{ profile: ServerProfile; profiles: ServerProfile[] }>,
       onChanged: (callback) => on('profiles-changed', callback)
     },
     server: {
@@ -649,6 +653,8 @@ export function installWindowApi(): void {
         restore: (profileId, filePath) => invoke('minecraft_backup_restore', { profileId, filePath }) as Promise<void>,
         openFolder: (profileId) => invoke('minecraft_backup_open_folder', { profileId }) as Promise<void>,
         onCreated: (callback) => on<string>('minecraft-backup-created', callback),
+        getScheduleStatus: (profileId) =>
+          invoke('minecraft_backup_get_schedule_status', { profileId }) as Promise<BackupScheduleStatus>,
         getLog: (profileId) => invoke('minecraft_backup_get_log', { profileId }) as Promise<BackupLogEntry[]>,
         onLogChanged: (callback) =>
           on<{ profileId: string; entry: BackupLogEntry }>('minecraft-backup-log-entry', ({ profileId, entry }) => callback(profileId, entry))

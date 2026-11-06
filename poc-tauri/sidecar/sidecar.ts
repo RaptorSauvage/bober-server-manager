@@ -55,7 +55,7 @@ import {
   getProfile
 } from '../../src/main/store'
 import { sendRconCommand, parsePlayerListWithIds } from '../../src/main/lib/rcon'
-import { isValidArkInstall } from '../../src/main/lib/detect'
+import { isValidArkInstall, detectGameFromInstall, detectProfileFields, uniqueProfileName } from '../../src/main/lib/detect'
 import { isStartupComplete, markStartupComplete, startupStatusEvents } from '../../src/main/lib/startupStatus'
 import { logManagerEvent, newTaskId, managerLogEvents, readManagerLog } from '../../src/main/lib/managerLog'
 import {
@@ -148,7 +148,11 @@ import {
   applyScheduledMaintenance
 } from '../../src/main/lib/scheduledActions'
 import { applyMinecraftScheduledRestart, clearMinecraftScheduledRestart } from '../../src/main/lib/minecraftScheduledActions'
-import { applyMinecraftBackupSchedule, clearMinecraftBackupSchedule } from '../../src/main/lib/minecraftBackupSchedule'
+import {
+  applyMinecraftBackupSchedule,
+  clearMinecraftBackupSchedule,
+  getMinecraftBackupScheduleStatus
+} from '../../src/main/lib/minecraftBackupSchedule'
 import {
   listMinecraftProfiles,
   saveMinecraftProfile,
@@ -252,6 +256,94 @@ const methods: Record<string, (params: unknown) => unknown> = {
     applyScheduledDinoWipe(profile)
     applyScheduledRconCommands(profile)
     applyScheduledMaintenance(profile)
+    return { profile, profiles }
+  },
+  // Real, unmodified detectGameFromInstall()/detectProfileFields()/uniqueProfileName() - backs
+  // Dashboard.tsx's own "+ Add Profile" wizard's "Import from install folder" path (ARK side;
+  // Minecraft's own equivalent is 'minecraft.profiles.importFromInstall' below). Found missing
+  // during an IPC-surface audit against the real preload (src/preload/index.ts) - every other
+  // 'profiles.*' method here had a counterpart, this one didn't, even though windowApi.ts's own
+  // type declaration already promised it. Builds the same full ServerProfile object the real
+  // ipc/profiles.ts handler does (every field defaulted the same way), rather than a narrower
+  // PoC-only shape - a real migration's import path has to produce a profile the rest of the
+  // real app (saveProfile's own sanitization, every field the UI reads) can trust unconditionally.
+  'profiles.importFromInstall': async (params) => {
+    const { installDir } = params as { installDir: string }
+    const game = await detectGameFromInstall(installDir)
+    if (!game) {
+      throw new Error('No supported ARK server executable found in this folder.')
+    }
+
+    const detected = detectProfileFields(installDir)
+    const existing = listProfiles()
+    const name = uniqueProfileName(detected.suggestedName, existing.map((p) => p.name))
+
+    const profile: ServerProfile = {
+      id: randomUUID(),
+      name,
+      game,
+      installDir,
+      steamBetaEnabled: false,
+      steamBetaName: '',
+      map: detected.map,
+      moddedMapEnabled: false,
+      moddedMapId: '',
+      gamePort: detected.gamePort ?? 7777,
+      rconPort: detected.rconPort ?? 27020,
+      queryPort: detected.queryPort ?? 27015,
+      serverPlatform: 'PC',
+      maxPlayers: 70,
+      backupDir: '',
+      maxBackups: 10,
+      backupSchedule: '',
+      backupScheduleEnabled: false,
+      playerProfileBackupEnabled: false,
+      playerProfileBackupMaxPerPlayer: 20,
+      mods: detected.mods,
+      clusterEnabled: false,
+      clusterId: '',
+      clusterDirOverride: '',
+      noTransferFromFiltering: false,
+      externalIp: '',
+      discordChatChannelId: '',
+      discordEventsChannelId: '',
+      discordBotExcluded: false,
+      cultureSettings: 'none',
+      disableBattlEye: false,
+      rconTribeLog: false,
+      forceRespawnDinos: false,
+      noSound: false,
+      maxDinoLevel: '',
+      serverPassword: '',
+      autoManageMods: false,
+      extraArgs: '',
+      scheduledRestartEnabled: false,
+      scheduledRestartTime: '00:00',
+      scheduledRestartDays: [],
+      scheduledRestartUpdateAfter: false,
+      scheduledRestartStartAfter: false,
+      scheduledRestartOnlyIfEmpty: false,
+      scheduledRestartOnlyIfUpdateAvailable: false,
+      scheduledDinoWipeEnabled: false,
+      scheduledDinoWipeTime: '00:00',
+      scheduledDinoWipeDays: [],
+      scheduledRconCommands: [],
+      scheduledMaintenanceEnabled: false,
+      scheduledMaintenanceTime: '00:00',
+      scheduledMaintenanceDays: [],
+      startOnManagerLaunch: false,
+      hidden: false,
+      group: '',
+      crashWatchEnabled: false,
+      zombieDetectionEnabled: false,
+      zombieDetectionTimeoutMinutes: 10,
+      zombieDetectionAutoRestart: false,
+      clusterLogArchiveMaxSizeMB: 10,
+      statsEnabled: false
+    }
+
+    const profiles = saveProfile(profile)
+    applyBackupSchedule(profile)
     return { profile, profiles }
   },
   // Real, unmodified copyProfile()/moveProfile() from lib/profileCopyMove.ts - a write path
@@ -1382,6 +1474,16 @@ const methods: Record<string, (params: unknown) => unknown> = {
     if (!profile) throw new Error(`Unknown Minecraft profile: ${(params as { profileId: string }).profileId}`)
     await openMinecraftBackupFolder(profile)
     return { ok: true }
+  },
+  // Real, unmodified getMinecraftBackupScheduleStatus() - the Minecraft side of
+  // 'backup.getScheduleStatus' above (AnalyticsTab's own Backup Status panel). Found missing
+  // during the same IPC-surface audit as profiles.importFromInstall above - every other
+  // 'minecraft.backup.*' method here had already been ported, this one hadn't.
+  'minecraft.backup.getScheduleStatus': (params) => {
+    const { profileId } = params as { profileId: string }
+    const profile = getMinecraftProfile(profileId)
+    if (!profile) throw new Error(`Unknown Minecraft profile: ${profileId}`)
+    return getMinecraftBackupScheduleStatus(profile)
   },
   // Real, unmodified openMinecraftServerRootFolder() (lib/minecraftBackup.ts) and
   // readServerProperties()/upsertServerPropertiesKeys() (lib/minecraftProperties.ts) - backs

@@ -236,6 +236,16 @@ fn profiles_import_from_file(file_path: String, sidecar: tauri::State<SidecarHan
     sidecar.call("profiles.importFromFile", Some(serde_json::json!({ "filePath": file_path })))
 }
 
+// Found missing during an IPC-surface audit against the real preload (src/preload/index.ts):
+// every other profiles_* command here had a counterpart, this one - the ARK-side "+ Add
+// Profile" wizard's "import from an existing install folder" path - didn't, even though
+// windowApi.ts's own type declaration already promised it. Same shape as the already-wired
+// minecraft_profiles_import right below.
+#[tauri::command]
+fn profiles_import_from_install(install_dir: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("profiles.importFromInstall", Some(serde_json::json!({ "installDir": install_dir })))
+}
+
 #[tauri::command]
 fn profiles_copy(
     profile_id: String,
@@ -1224,6 +1234,13 @@ fn minecraft_backup_restore(profile_id: String, file_path: String, sidecar: taur
 #[tauri::command]
 fn minecraft_backup_open_folder(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
     sidecar.call("minecraft.backup.openFolder", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+// The Minecraft side of backup_get_schedule_status above - found missing during the same
+// IPC-surface audit as profiles_import_from_install.
+#[tauri::command]
+fn minecraft_backup_get_schedule_status(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("minecraft.backup.getScheduleStatus", Some(serde_json::json!({ "profileId": profile_id })))
 }
 
 /// Backs MinecraftServerDetail/ServerSettingsTab.tsx - a thirty-third real page.
@@ -2241,6 +2258,7 @@ fn main() {
             minecraft_backup_delete,
             minecraft_backup_restore,
             minecraft_backup_open_folder,
+            minecraft_backup_get_schedule_status,
             minecraft_open_server_folder,
             minecraft_properties_get,
             minecraft_properties_save,
@@ -2268,7 +2286,8 @@ fn main() {
             app_quit,
             app_open_dev_tools,
             dialog_select_profile_file,
-            profiles_import_from_file
+            profiles_import_from_file,
+            profiles_import_from_install
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

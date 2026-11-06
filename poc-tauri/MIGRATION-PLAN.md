@@ -140,9 +140,29 @@ confirmé visuellement dans ce sandbox Xvfb headless (aucun gestionnaire de fen�
 faire suivre l'état) - même catégorie que les sélecteurs natifs, l'appel RPC lui-même
 fonctionne sans erreur.
 
-Ce qui reste : auditer les 39 modules `src/main/ipc/*.ts` un par un contre `main.rs` pour
-trouver d'éventuels endpoints jamais exercés même par cette surface désormais complète
-(aucun trou connu à ce jour, mais pas formellement vérifié module par module).
+**Fait depuis** : l'audit complet de la surface `window.api`, pas module par module mais par
+diff mécanique du vrai `src/preload/index.ts` contre `poc-tauri/frontend/lib/windowApi.ts` -
+plus fiable qu'une relecture des 39 fichiers `src/main/ipc/*.ts` un par un, puisque le preload
+*est* exactement l'union de tout ce que ces modules exposent réellement au renderer (un handler
+jamais exposé via le preload ne peut de toute façon jamais être appelé par la vraie UI). Script
+jetable (parcours des deux fichiers, comparaison des chemins `domaine.méthode`) : 181 méthodes
+réelles, 2 trous trouvés, 1 faux positif (alias interne déjà documenté, sans équivalent réel).
+
+Les deux vrais trous, chacun un cas de "jamais appelé par aucune des 36 pages de test isolées,
+seulement par le vrai `App.tsx`/`Dashboard.tsx` monté pour de vrai" :
+- `profiles.importFromInstall` - le bouton "+ Add Profile" du vrai Dashboard, chemin "importer
+  depuis un dossier d'installation" (différent de `importFromFile`, l'import d'un `.json`
+  exporté). Totalement absent à tous les étages (sidecar, `main.rs`, `windowApi.ts`) alors que
+  l'équivalent Minecraft (`minecraft.profiles.importFromInstall`) existait déjà. Porté en
+  réutilisant telles quelles les vraies `detectGameFromInstall()`/`detectProfileFields()`/
+  `uniqueProfileName()` (`lib/detect.ts`), même construction d'objet `ServerProfile` complet que
+  le vrai `ipc/profiles.ts`, pas une version simplifiée.
+- `minecraft.backup.getScheduleStatus` - le pendant Minecraft de `backup.getScheduleStatus`
+  (déjà porté côté ARK), pour le panneau Backup Status d'AnalyticsTab. Même pattern, réutilise
+  la vraie `getMinecraftBackupScheduleStatus()`.
+
+Vérifié : `cargo build` + `cargo check --target x86_64-pc-windows-gnu` propres, bundles sidecar/
+frontend ré-générés sans erreur, re-exécution du script d'audit après le fix - 0 trou restant.
 
 ### 2. Migration des données de l'ancien manager Electron
 
