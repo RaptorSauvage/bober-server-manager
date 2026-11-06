@@ -99,6 +99,20 @@ struct ShellRequest {
     params: Value,
 }
 
+/// Best-effort graceful bot shutdown (same RPC bot_stop uses, which calls the real
+/// stopDiscordBot() - closes the Discord gateway connection cleanly rather than yanking it),
+/// then kill the sidecar's process group (which the bot, spawned as its child, is already part
+/// of - see spawn_sidecar's own `set_process_group` comment). Shared by RunEvent::Exit (every
+/// normal quit path) and app_update_install (see that function's own comment on why Windows
+/// needs this called explicitly, before update.install() rather than relying on the exit event).
+fn shutdown_sidecar(app_handle: &tauri::AppHandle) {
+    let sidecar = app_handle.state::<SidecarHandle>();
+    let _ = sidecar.call_with_timeout("bot.stop", None, 3);
+    if let Some(child) = sidecar.child.lock().unwrap().take() {
+        let _ = child.kill();
+    }
+}
+
 type PendingMap = Arc<Mutex<HashMap<i64, mpsc::Sender<RpcResponse>>>>;
 /// Shared with the background reader task so it can write shell-request responses back onto
 /// the sidecar's stdin itself, from inside the same task that's reading its stdout. `Option`
@@ -1134,13 +1148,17 @@ fn app_update_install(app_handle: tauri::AppHandle, pending: tauri::State<Pendin
     let Some((update, bytes)) = pending.0.lock().unwrap().take() else {
         return Err("No downloaded update ready to install - check for updates first.".to_string());
     };
+    // Must happen before install(), not after: on Windows install() below exits the app itself
+    // right after launching the installer (its own doc comment), which skips request_restart()
+    // further down entirely - that used to be the only place sidecar/bot cleanup happened outside
+    // RunEvent::Exit, so an update on Windows left both running as orphans (real report: the NSIS
+    // installer then also failed to overwrite the running sidecar-bin.exe, forcing a manual kill).
+    shutdown_sidecar(&app_handle);
     update.install(&bytes).map_err(|e| e.to_string())?;
-    // Windows: install() above already exits the app after launching the installer (its own doc
-    // comment), so this line never runs there. macOS/Linux: the new version is on disk but this
-    // process is still running the old one, so an explicit restart is required - request_restart()
-    // (plain tauri::AppHandle API, no extra plugin needed for it) goes through the exact same
-    // RunEvent::Exit this file's own quit-cleanup handler already covers, so the sidecar/bot get
-    // torn down cleanly on the way out here too, not just on a normal quit.
+    // macOS/Linux only in practice (see above): the new version is on disk but this process is
+    // still running the old one, so an explicit restart is required - request_restart() (plain
+    // tauri::AppHandle API, no extra plugin needed for it) still goes through RunEvent::Exit,
+    // which calls shutdown_sidecar() again, but it's already a no-op by then (child already taken).
     app_handle.request_restart();
     Ok(())
 }
@@ -2404,16 +2422,7 @@ fn main() {
             // not a point where exiting could still be cancelled), making it the one place a
             // single explicit cleanup call reliably covers every quit path.
             if let tauri::RunEvent::Exit = event {
-                let sidecar = app_handle.state::<SidecarHandle>();
-                // Best-effort graceful bot shutdown first (same RPC bot_stop uses, which calls
-                // the real stopDiscordBot() - closes the Discord gateway connection cleanly
-                // rather than yanking it). Short timeout: quitting the app shouldn't hang
-                // noticeably even if the sidecar's already wedged, and the process-group kill
-                // right after is the real guarantee either way, not this.
-                let _ = sidecar.call_with_timeout("bot.stop", None, 3);
-                if let Some(child) = sidecar.child.lock().unwrap().take() {
-                    let _ = child.kill();
-                }
+                shutdown_sidecar(app_handle);
             }
         });
 }
