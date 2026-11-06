@@ -32,7 +32,7 @@
   "plugins": {
     "updater": {
       "endpoints": ["https://github.com/RaptorSauvage/bober-server-manager/releases/latest/download/latest.json"],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUxNEMwMkMzM0Y5OTY1OUQKUldTZFpaay93d0pNVWJLOEhsTmdLNWtYM3MrYUxXbzNhcVVOdU9JTU1BZUx5czlsZDdlZFgwMG8K"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ0NjkwNjE4MUE4MjkyNkEKUldScWtvSWFHQVpwMUtzSHZEQlpVeHI3Zyt3akpVWVFRZzJDY2JlTjhKdUhaSGJ3V2JQalI4azUK"
     }
   }
 }
