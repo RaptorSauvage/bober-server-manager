@@ -1,0 +1,93 @@
+name: Release Tauri PoC
+
+# MIGRATION-PLAN.md point 6 ("Pipeline CI multi-OS"). Matches this repo's own current
+# tauri.conf.json bundle.targets exactly (poc-tauri/src-tauri/tauri.conf.json: "deb", "msi",
+# "nsis") - Linux + Windows, not three OSes. macOS is a later increment (see that file's own
+# "Ordre délibérément Windows-first" phasing note), not forgotten: add "app"/"dmg" to
+# bundle.targets and a macos-latest leg to the matrix below once that priority comes up. This
+# repo is public, so every job here runs on GitHub's free, unlimited-minutes hosted runners -
+# no self-hosted runner, no paid minutes, for any OS in the matrix.
+#
+# Builds the sidecar/bot SEA binaries and the frontend bundles first (same scripts used for a
+# local build - see poc-tauri/README.md's own "Running it"), then hands off to tauri-apps's own
+# official tauri-action, which runs `cargo tauri build`, signs the update artifacts with
+# TAURI_SIGNING_PRIVATE_KEY (see that step's own comment on the two secrets it needs), and
+# publishes everything - including the latest.json manifest - to a GitHub Release matching this
+# push's tag. That latest.json is exactly what tauri.conf.json's plugins.updater.endpoints
+# already points at, so a release made here is immediately what the in-app "Check for updates"
+# button (poc-tauri/src-tauri/src/main.rs's app_update_check) finds.
+#
+# releaseDraft: true below on purpose - review the generated release before publishing it
+# rather than it going live the instant this workflow finishes.
+
+"on":
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+jobs:
+  release:
+    permissions:
+      # Needed to create/update the GitHub Release and upload build artifacts to it - some
+      # orgs/repos default GITHUB_TOKEN to read-only, which would otherwise fail this silently
+      # late (at the release-publish step, after the whole build already ran).
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-latest
+          - platform: windows-latest
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux Tauri build dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf build-essential curl wget file libssl-dev libayatana-appindicator3-dev libxdo-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: poc-tauri/src-tauri -> target
+
+      # Produces poc-tauri/sidecar/dist/sidecar-bin and poc-tauri/sidecar/bot/bot-bin, each
+      # copied into poc-tauri/src-tauri/binaries/ under the exact <name>-<target-triple> form
+      # tauri.conf.json's bundle.externalBin requires - see those two scripts' own comments.
+      # `cargo tauri build` below fails outright if these aren't there first.
+      - name: Build sidecar + bot SEA binaries and frontend bundles
+        run: |
+          node poc-tauri/sidecar/build.mjs
+          node poc-tauri/sidecar/build-sea.mjs
+          node poc-tauri/sidecar/build-bot.mjs
+          node poc-tauri/sidecar/build-bot-sea.mjs
+          node poc-tauri/frontend/build-react.mjs
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Required once this repo has its own real updater keypair (`cargo tauri signer
+          # generate`, kept out of the repo) - store its private half and password (if any) as
+          # these two repo secrets. Settings > Secrets and variables > Actions. Until they're
+          # set, tauri-action still builds and publishes the installers fine; it just can't sign
+          # updater artifacts, so the in-app update check won't find anything to install.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: poc-tauri/src-tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: "Bober Server Manager ${{ github.ref_name }}"
+          releaseDraft: true
+          prerelease: false

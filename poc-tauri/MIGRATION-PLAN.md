@@ -365,13 +365,45 @@ pour de vrai avant une diffusion publique.
 
 ### 7. Pipeline de build CI
 
-Rien n'existe aujourd'hui pour builder automatiquement : sidecar SEA (`build.mjs` +
-`build-sea.mjs`), bot SEA (`build-bot.mjs` + `build-bot-sea.mjs`), bundle React
-(`build-react.mjs` - mais ce script liste les pages une par une, à remplacer par le vrai build
-Vite de `src/renderer` une fois l'App.tsx porté), puis `cargo tauri build` sur Windows/macOS/
-Linux en matrice. Un pipeline GitHub Actions (ou équivalent) multi-OS est un prérequis pour
-livrer des releases de façon fiable et reproductible, pas quelque chose à faire à la main à
-chaque version.
+**Fait, pas juste planifié** - `.github/workflows/release.yml`. Déclenché sur un tag `v*` (ou à
+la main via `workflow_dispatch`), construit les mêmes étapes qu'un build local (`build.mjs` +
+`build-sea.mjs` pour le sidecar, `build-bot.mjs` + `build-bot-sea.mjs` pour le bot,
+`build-react.mjs` pour les bundles React - toujours la liste page par page, à remplacer par le
+vrai build Vite de `src/renderer` une fois l'App.tsx porté, comme déjà noté), puis laisse la
+vraie action officielle du projet Tauri (`tauri-apps/tauri-action`) lancer `cargo tauri build`,
+signer les artefacts de mise à jour et publier une Release GitHub (en brouillon - relue avant
+publication, pas publique instantanément) avec le `latest.json` que l'auto-update (section 3
+plus haut) lit déjà.
+
+**Matrice volontairement à deux OS, pas trois** : Linux + Windows, exactement ce que
+`tauri.conf.json` configure déjà (`bundle.targets: ["deb", "msi", "nsis"]` - aucune cible macOS
+dedans). macOS reste une étape ultérieure déjà identifiée dans le phasage ("Windows-first comme
+demandé") plutôt qu'oublié - s'ajoute en deux endroits le jour venu : `"app"`/`"dmg"` dans
+`bundle.targets`, et une entrée `macos-latest` dans la matrice du workflow.
+
+**Gratuit de bout en bout** : ce dépôt est public, donc minutes GitHub Actions illimitées sur
+tous les runners hébergés (Windows compris), aucun runner self-hosted ni palier payant. Seule la
+vraie signature de code Windows (section 4 plus bas) coûte réellement quelque chose, et c'est
+une étape entièrement séparée du pipeline CI lui-même.
+
+**Vérifié en conditions réelles, pas juste la syntaxe YAML** : les 5 étapes de build (sidecar
+bundle + SEA, bot bundle + SEA, bundles React) tournent avec succès depuis la racine du dépôt -
+exactement comme le workflow les invoque, pas depuis `poc-tauri/sidecar/` comme pendant le
+développement habituel de ce PoC. Un vrai `cargo tauri build` complet (profil release, pas juste
+`cargo build`/`check`) avec la clé de signature jetable de ce PoC exportée en variables
+d'environnement (`TAURI_SIGNING_PRIVATE_KEY`/`_PASSWORD`, la même convention que lit
+`tauri-action`) a produit un vrai `.deb` de 96,70 Mio **et** sa signature de mise à jour
+(`.sig`) à côté - confirme que `bundle.createUpdaterArtifacts: true` et le mécanisme de
+signature fonctionnent vraiment ensemble, pas juste séparément. Ce que ça ne peut pas prouver
+depuis ce sandbox Linux : le `cargo tauri build` complet tournant pour de vrai sur
+`windows-latest` (seul `cargo check --target x86_64-pc-windows-gnu`, correction de code sans
+lien final ni bundling MSI/NSIS réels, est vérifiable ici) - nécessite un vrai run du workflow.
+
+**Ce qu'il reste avant la première vraie release** : générer une vraie paire de clés dédiée
+(`cargo tauri signer generate`, PAS la clé jetable de ce PoC) et stocker sa moitié privée comme
+secrets de dépôt GitHub (`TAURI_SIGNING_PRIVATE_KEY`/`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`,
+Settings > Secrets and variables > Actions), remplacer la clé publique jetable dans
+`tauri.conf.json` par celle de cette vraie paire, puis pousser un premier tag `v*` pour de vrai.
 
 ### 8. Taille et temps de démarrage du binaire
 
@@ -402,8 +434,10 @@ promettre un temps de démarrage à l'utilisateur final.
    chemin "une vraie mise à jour existe" de l'auto-update - rien de tout ça n'est vérifiable
    dans ce sandbox Xvfb headless, qui n'a ni vrai gestionnaire de fenêtres ni release GitHub
    publiée à pointer.
-6. **Pipeline CI multi-OS** - prérequis pour publier une vraie release et donc pour la dernière
-   étape de QA de l'auto-update ci-dessus, en plus de livrer des builds de façon reproductible.
+6. ~~Pipeline CI multi-OS~~ **(section 7) - fait.** `.github/workflows/release.yml`, gratuit
+   (dépôt public), vérifié en conditions réelles (voir cette section). Reste seulement une vraie
+   paire de clés updater et un premier tag `v*` poussé pour de vrai - ce qui déverrouille aussi
+   la dernière étape de QA de l'auto-update au point 5 ci-dessus.
 7. **Signature de code Windows** - dernière étape avant diffusion publique, une fois le reste
    stabilisé (signer un binaire qui va encore beaucoup bouger n'apporte rien).
 
