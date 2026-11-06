@@ -129,6 +129,43 @@ fn debug_log(line: impl AsRef<str>) {
     }
 }
 
+/// Polls (up to `timeout`) until `path` can be opened for exclusive write - i.e. until Windows
+/// has actually finished unmapping whatever process's PE image it was, not just until that
+/// process is gone from the task list (see app_update_install's own comment on why those two
+/// are different). No-op/always-true-ish on platforms without this lock semantics, but this is
+/// only ever called `#[cfg(windows)]`. Logs every attempt via debug_log for the next test round.
+#[cfg(windows)]
+fn wait_until_unlocked(path: &std::path::Path, timeout: std::time::Duration) {
+    use std::fs::OpenOptions;
+    use std::time::Instant;
+    if !path.exists() {
+        debug_log(format!("wait_until_unlocked({path:?}): file doesn't exist, nothing to wait for"));
+        return;
+    }
+    let start = Instant::now();
+    let mut attempts = 0u32;
+    loop {
+        attempts += 1;
+        match OpenOptions::new().write(true).open(path) {
+            Ok(_) => {
+                debug_log(format!(
+                    "wait_until_unlocked({path:?}): unlocked after {attempts} attempt(s), {:?}",
+                    start.elapsed()
+                ));
+                return;
+            }
+            Err(e) if start.elapsed() >= timeout => {
+                debug_log(format!(
+                    "wait_until_unlocked({path:?}): gave up after {attempts} attempt(s), {:?}, still locked: {e}",
+                    start.elapsed()
+                ));
+                return;
+            }
+            Err(_) => std::thread::sleep(std::time::Duration::from_millis(100)),
+        }
+    }
+}
+
 fn shutdown_sidecar(app_handle: &tauri::AppHandle) {
     debug_log("shutdown_sidecar: start");
     let sidecar = app_handle.state::<SidecarHandle>();
@@ -1205,13 +1242,28 @@ fn app_update_install(app_handle: tauri::AppHandle, pending: tauri::State<Pendin
     // RunEvent::Exit, so an update on Windows left both running as orphans (real report: the NSIS
     // installer then also failed to overwrite the running sidecar-bin.exe, forcing a manual kill).
     shutdown_sidecar(&app_handle);
-    // Real report: even with shutdown_sidecar() called right before this, the installer still
-    // silently failed to overwrite bot-bin.exe/sidecar-bin.exe on Windows (only the main .exe got
-    // replaced, no error surfaced - NSIS's default passive/`/P` update mode doesn't show per-file
-    // errors). taskkill /F is believed synchronous, but adding a small explicit margin here costs
-    // nothing and rules out a tight race between process teardown and the installer's first file
-    // write while shutdown-debug.log (see debug_log) gives real evidence either way.
-    std::thread::sleep(std::time::Duration::from_millis(750));
+    // Real report + confirmed via shutdown-debug.log: bot.stop/CommandChild.kill()/taskkill all
+    // report success and "process not found" well before install() runs, yet bot-bin.exe/
+    // sidecar-bin.exe still never get overwritten - only the main .exe and uninstall.exe do.
+    // The difference: the main exe *self*-terminates (ExitProcess unmaps its own PE image
+    // synchronously as part of exiting) and uninstall.exe is freshly created (WriteUninstaller,
+    // never itself a locked target), but bot-bin.exe/sidecar-bin.exe are terminated *externally*
+    // (TerminateJobObject/taskkill) - Windows removes a process from the task list essentially
+    // immediately, but the kernel's unmap of that process's own PE image section (what actually
+    // releases the exclusive-write lock on the .exe file) happens asynchronously afterward and
+    // isn't bounded by when TerminateProcess/taskkill returns. A fixed sleep doesn't prove
+    // anything either way, so this actively confirms each file is really openable for exclusive
+    // write before proceeding, instead of guessing a delay.
+    #[cfg(windows)]
+    {
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                for name in ["sidecar-bin.exe", "bot-bin.exe"] {
+                    wait_until_unlocked(&dir.join(name), std::time::Duration::from_secs(5));
+                }
+            }
+        }
+    }
     debug_log("app_update_install: about to call update.install()");
     let install_result = update.install(&bytes);
     debug_log(format!("app_update_install: update.install() returned = {:?}", install_result.is_err()));
