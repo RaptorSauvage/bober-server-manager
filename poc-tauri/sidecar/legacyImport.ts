@@ -31,7 +31,11 @@ import {
   listWatchedPlayers,
   addWatchedPlayer,
   listWebDashboardAccessTokens,
-  saveWebDashboardAccessToken
+  saveWebDashboardAccessToken,
+  listWebDashboardApiKeys,
+  saveWebDashboardApiKey,
+  listModEventHistory,
+  recordModEventHistory
 } from '../../src/main/store'
 import { getDefaultDataDir } from '../../src/main/lib/dataDir'
 import { migrateProfile } from '../../src/main/lib/profileMigration'
@@ -44,9 +48,11 @@ interface LegacyStoreShape {
   profiles?: unknown[]
   minecraftProfiles?: unknown[]
   webDashboardAccessTokens?: unknown[]
+  webDashboardApiKeys?: unknown[]
   playerBans?: unknown[]
   playerWhitelist?: unknown[]
   watchedPlayers?: unknown[]
+  modEventHistory?: unknown[]
 }
 
 /** Mirrors Electron's own `app.getPath('userData')` resolution closely enough to search both
@@ -75,6 +81,8 @@ export interface LegacyCandidate {
   whitelistCount: number
   watchedPlayerCount: number
   accessTokenCount: number
+  apiKeyCount: number
+  modEventHistoryCount: number
   error?: string
 }
 
@@ -87,7 +95,16 @@ function readLegacyStore(configPath: string): { data?: LegacyStoreShape; error?:
   }
 }
 
-const emptyCounts = { profileCount: 0, minecraftProfileCount: 0, banCount: 0, whitelistCount: 0, watchedPlayerCount: 0, accessTokenCount: 0 }
+const emptyCounts = {
+  profileCount: 0,
+  minecraftProfileCount: 0,
+  banCount: 0,
+  whitelistCount: 0,
+  watchedPlayerCount: 0,
+  accessTokenCount: 0,
+  apiKeyCount: 0,
+  modEventHistoryCount: 0
+}
 
 function describeCandidate(dir: string): LegacyCandidate {
   const configPath = path.join(dir, 'config.json')
@@ -105,7 +122,9 @@ function describeCandidate(dir: string): LegacyCandidate {
     banCount: Array.isArray(data.playerBans) ? data.playerBans.length : 0,
     whitelistCount: Array.isArray(data.playerWhitelist) ? data.playerWhitelist.length : 0,
     watchedPlayerCount: Array.isArray(data.watchedPlayers) ? data.watchedPlayers.length : 0,
-    accessTokenCount: Array.isArray(data.webDashboardAccessTokens) ? data.webDashboardAccessTokens.length : 0
+    accessTokenCount: Array.isArray(data.webDashboardAccessTokens) ? data.webDashboardAccessTokens.length : 0,
+    apiKeyCount: Array.isArray(data.webDashboardApiKeys) ? data.webDashboardApiKeys.length : 0,
+    modEventHistoryCount: Array.isArray(data.modEventHistory) ? data.modEventHistory.length : 0
   }
 }
 
@@ -135,6 +154,10 @@ export interface LegacyImportResult {
   skippedWatchedPlayers: number
   importedAccessTokens: number
   skippedAccessTokens: number
+  importedApiKeys: number
+  skippedApiKeys: number
+  importedModEventHistory: number
+  skippedModEventHistory: number
   customMapsCopied: boolean
   error?: string
 }
@@ -152,6 +175,10 @@ const emptyImportResult: LegacyImportResult = {
   skippedWatchedPlayers: 0,
   importedAccessTokens: 0,
   skippedAccessTokens: 0,
+  importedApiKeys: 0,
+  skippedApiKeys: 0,
+  importedModEventHistory: 0,
+  skippedModEventHistory: 0,
   customMapsCopied: false
 }
 
@@ -279,6 +306,44 @@ export function runLegacyImport(dir: string): LegacyImportResult {
     importedAccessTokens++
   }
 
+  // CurseForge mod-update notifications and the web dashboard both authenticate via these -
+  // same "import the real secretHash as-is" reasoning as access tokens above, and the same
+  // upsert-by-id saveWebDashboardApiKey() every other real write to this collection uses.
+  const existingApiKeyIds = new Set(listWebDashboardApiKeys().map((k) => k.id))
+  let importedApiKeys = 0
+  let skippedApiKeys = 0
+  for (const raw of data.webDashboardApiKeys ?? []) {
+    const key = raw as { id?: string }
+    if (!key.id || existingApiKeyIds.has(key.id)) {
+      skippedApiKeys++
+      continue
+    }
+    saveWebDashboardApiKey(key as unknown as Parameters<typeof saveWebDashboardApiKey>[0])
+    importedApiKeys++
+  }
+
+  // recordModEventHistory() only appends (it has no upsert concept of its own - history entries
+  // are an append-only log, not a keyed collection like everything else imported above), so the
+  // "never touch an id the current store already has" guarantee is enforced here instead, by
+  // skipping ids the current history already contains before calling it. One real wrinkle worth
+  // naming rather than silently accepting: recordModEventHistory() appends to the *end* and caps
+  // at MAX_MOD_EVENT_HISTORY from there, so imported entries land after (chronologically "more
+  // recent" than) any genuinely newer entries the current store already has - fine for a
+  // never-touched fresh install (the common case this import exists for), a real ordering
+  // quirk if imported into a store that already has its own history.
+  const existingModEventHistoryIds = new Set(listModEventHistory(Number.MAX_SAFE_INTEGER).map((h) => h.id))
+  let importedModEventHistory = 0
+  let skippedModEventHistory = 0
+  for (const raw of data.modEventHistory ?? []) {
+    const entry = raw as { id?: string }
+    if (!entry.id || existingModEventHistoryIds.has(entry.id)) {
+      skippedModEventHistory++
+      continue
+    }
+    recordModEventHistory(entry as unknown as Parameters<typeof recordModEventHistory>[0])
+    importedModEventHistory++
+  }
+
   // Best-effort secondary copy: the Documents-based data dir (customMaps.json, INI template
   // imports) is a second, independent on-disk location from the electron-store config.json
   // above, and only ever gets copied here if the *new* app's own default data dir doesn't
@@ -313,6 +378,10 @@ export function runLegacyImport(dir: string): LegacyImportResult {
     skippedWatchedPlayers,
     importedAccessTokens,
     skippedAccessTokens,
+    importedApiKeys,
+    skippedApiKeys,
+    importedModEventHistory,
+    skippedModEventHistory,
     customMapsCopied
   }
 }

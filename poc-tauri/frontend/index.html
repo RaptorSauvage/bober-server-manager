@@ -546,7 +546,8 @@
           legacyPreviewEl.textContent =
             `Selected: ${candidate.path} - ${candidate.profileCount} ARK profile(s), ${candidate.minecraftProfileCount} Minecraft profile(s), ` +
             `${candidate.banCount} ban(s), ${candidate.whitelistCount} whitelist entr(ies), ${candidate.watchedPlayerCount} watched player(s), ` +
-            `${candidate.accessTokenCount} web dashboard token(s) found.`
+            `${candidate.accessTokenCount} web dashboard token(s), ${candidate.apiKeyCount} web dashboard API key(s), ` +
+            `${candidate.modEventHistoryCount} mod event history entr(ies) found.`
           legacyImportBtn.disabled = false
         }
       }
@@ -599,7 +600,9 @@
               `${result.importedBans} ban(s) (${result.skippedBans} already present), ` +
               `${result.importedWhitelist} whitelist entr(ies) (${result.skippedWhitelist} already present), ` +
               `${result.importedWatchedPlayers} watched player(s) (${result.skippedWatchedPlayers} already present), ` +
-              `${result.importedAccessTokens} web dashboard token(s) (${result.skippedAccessTokens} already present). ` +
+              `${result.importedAccessTokens} web dashboard token(s) (${result.skippedAccessTokens} already present), ` +
+              `${result.importedApiKeys} web dashboard API key(s) (${result.skippedApiKeys} already present), ` +
+              `${result.importedModEventHistory} mod event history entr(ies) (${result.skippedModEventHistory} already present). ` +
               `Custom maps file copied: ${result.customMapsCopied}.`
           })
           .catch((err) => {

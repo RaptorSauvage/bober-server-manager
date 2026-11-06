@@ -229,11 +229,23 @@ banni maintenant", pas pour une restauration d'archive). Les tokens d'accès imp
 à authentifier contre la nouvelle appli sans rien reconfigurer. Testé de bout en bout (standalone
 et via l'app compilée réelle), y compris l'idempotence sur les six types de données à la fois.
 
-**Ce qu'il reste** : une copie best-effort de `customMaps.json` (dossier Documents) existe déjà ;
-l'historique d'événements de mods et les clés API CurseForge/web dashboard restantes sont
-mécaniquement identiques à porter - même mécanisme exactement, juste pas encore fait. Le bouton
-natif de sélection manuelle n'a pas été testé avec un vrai clic humain (même gap que les autres
-sélecteurs natifs de ce PoC, voir section suivante).
+**Fait depuis** : l'historique d'événements de mods (`modEventHistory`) et les clés API web
+dashboard/CurseForge restantes (`webDashboardApiKeys`) sont maintenant importés aussi, même
+principe "jamais écraser un id déjà présent" que les six autres types de données. Un détail à
+nommer plutôt qu'à ignorer : `recordModEventHistory()` n'a pas de notion d'upsert à elle (c'est
+un journal purement additif, pas une collection indexée comme tout le reste) - la garantie
+"jamais toucher un id déjà présent" est donc appliquée manuellement ici, en filtrant les ids déjà
+connus avant d'appeler la fonction. Une vraie bizarrerie assumée plutôt que cachée : les entrées
+importées atterrissent à la fin du journal borné (donc "plus récentes" que des entrées réellement
+plus récentes déjà présentes) - sans conséquence sur une installation neuve jamais touchée (le
+cas d'usage réel de cet import), un vrai défaut d'ordre si importé dans un store qui a déjà son
+propre historique. Testé de bout en bout avec un faux `config.json` synthétique (1 clé API, 2
+entrées d'historique) : preview, import, ré-import idempotent (tout skip la deuxième fois) -
+confirmé via les vraies fonctions `store.ts`, pas une simulation.
+
+**Ce qu'il reste** : une copie best-effort de `customMaps.json` (dossier Documents) existe déjà.
+Le bouton natif de sélection manuelle n'a pas été testé avec un vrai clic humain (même gap que
+les autres sélecteurs natifs de ce PoC, voir section suivante).
 
 ### 3. Le flux de mise à jour automatique n'est pas porté du tout
 
