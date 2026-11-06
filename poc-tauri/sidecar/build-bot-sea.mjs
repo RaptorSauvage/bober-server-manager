@@ -57,5 +57,29 @@ mkdirSync(binariesDir, { recursive: true })
 copyFileSync(outBin, externalBinPath)
 chmodSync(externalBinPath, 0o755)
 
+// Windows only: see build-sea.mjs's identical block for why this is needed at all (SEA binaries
+// keep Node's own "Node.js JavaScript Runtime" version resource otherwise). This one gets its
+// own FileDescription distinct from the sidecar's, so the two are tellable apart in Task Manager
+// instead of both just reading "Bober Server Manager" / "Node.js".
+if (windows) {
+  execFileSync(
+    'npx',
+    [
+      '-y',
+      'rcedit@latest',
+      externalBinPath,
+      '--set-version-string',
+      'FileDescription',
+      'Bober Server Manager - Discord Bot',
+      '--set-version-string',
+      'ProductName',
+      'Bober Server Manager',
+      '--set-icon',
+      path.join(here, '..', 'src-tauri', 'icons', 'icon.ico')
+    ],
+    { cwd: here, stdio: 'inherit', shell: process.platform === 'win32' }
+  )
+}
+
 console.log(`bot SEA binary -> ${outBin}`)
 console.log(`              -> ${externalBinPath} (Tauri externalBin)`)

@@ -68,5 +68,32 @@ mkdirSync(binariesDir, { recursive: true })
 copyFileSync(outBin, externalBinPath)
 chmodSync(externalBinPath, 0o755)
 
+// Windows only: a SEA binary is a straight copy of the `node` executable with a blob injected,
+// so without this it keeps Node's own version resource verbatim - Task Manager shows it as
+// "Node.js JavaScript Runtime", indistinguishable from any other Node process on the machine,
+// and with the generic default icon. rcedit (the same tool electron-builder uses to rebrand
+// electron.exe) patches that resource in place post-build. Real report: this process is still a
+// real child of the main app (nests under it in Task Manager's tree) - this only fixes the
+// label/icon, not the grouping itself, which Windows already does correctly by parent/child.
+if (windows) {
+  execFileSync(
+    'npx',
+    [
+      '-y',
+      'rcedit@latest',
+      externalBinPath,
+      '--set-version-string',
+      'FileDescription',
+      'Bober Server Manager - Sidecar',
+      '--set-version-string',
+      'ProductName',
+      'Bober Server Manager',
+      '--set-icon',
+      path.join(here, '..', 'src-tauri', 'icons', 'icon.ico')
+    ],
+    { cwd: here, stdio: 'inherit', shell: process.platform === 'win32' }
+  )
+}
+
 console.log(`sidecar SEA binary -> ${outBin}`)
 console.log(`                  -> ${externalBinPath} (Tauri externalBin)`)

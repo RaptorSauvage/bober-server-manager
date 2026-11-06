@@ -105,11 +105,31 @@ struct ShellRequest {
 /// of - see spawn_sidecar's own `set_process_group` comment). Shared by RunEvent::Exit (every
 /// normal quit path) and app_update_install (see that function's own comment on why Windows
 /// needs this called explicitly, before update.install() rather than relying on the exit event).
+///
+/// Real report: even with this called before install() on Windows, the update installer still
+/// failed to overwrite bot-bin.exe/sidecar-bin.exe (only the main .exe got replaced) - the Job
+/// Object kill from `child.kill()` either isn't reliably cascading to the bot's own process on
+/// this install path, or isn't synchronous enough for the installer launched right after to see
+/// the file unlocked. `taskkill /F` below is a blunter, synchronous backstop scoped to these two
+/// app-specific binary names (safe to call unconditionally - "not found" is the common, expected
+/// case on every quit path that never spawned a bot) - it waits for the kill to actually
+/// complete rather than just signaling it, closing whatever gap the Job Object left open.
 fn shutdown_sidecar(app_handle: &tauri::AppHandle) {
     let sidecar = app_handle.state::<SidecarHandle>();
     let _ = sidecar.call_with_timeout("bot.stop", None, 3);
     if let Some(child) = sidecar.child.lock().unwrap().take() {
         let _ = child.kill();
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        for image in ["bot-bin.exe", "sidecar-bin.exe"] {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/F", "/T", "/IM", image])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+        }
     }
 }
 
