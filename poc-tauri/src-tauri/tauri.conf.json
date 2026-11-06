@@ -31,7 +31,7 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": ["https://github.com/RaptorSauvage/bober-server-manager/releases/latest/download/latest.json"],
+      "endpoints": ["https://github.com/RaptorSauvage/test-manager-ark/releases/latest/download/latest.json"],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ0NjkwNjE4MUE4MjkyNkEKUldScWtvSWFHQVpwMUtzSHZEQlpVeHI3Zyt3akpVWVFRZzJDY2JlTjhKdUhaSGJ3V2JQalI4azUK"
     }
   }
