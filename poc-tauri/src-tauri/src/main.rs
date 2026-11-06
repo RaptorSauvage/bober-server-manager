@@ -26,6 +26,8 @@
 // It reuses the exact same stdio pipe: a "shell-request" push event going out one way, an
 // ordinary `{id, result}`/`{id, error}` line coming back the other - see rpcToRust.ts.
 
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;

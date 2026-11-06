@@ -10,7 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Tauri PoC - Bober Server Manager",
+        "title": "Bober Server Manager",
         "url": "app.html",
         "width": 1280,
         "height": 820,
