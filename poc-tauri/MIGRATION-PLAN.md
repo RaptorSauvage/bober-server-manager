@@ -299,6 +299,22 @@ fois qu'il existe) pour vérifier le chemin "une mise à jour existe vraiment" -
 version, télécharge, le bouton Installer apparaît, installe, redémarre sur la nouvelle version.
 Rien de ça n'est vérifiable sans une vraie release GitHub à pointer dessus.
 
+**Bascule des utilisateurs Electron existants vers Tauri (décidé, pas encore implémenté) :**
+`electron-updater` (le vrai `appUpdater.ts`) et `tauri-plugin-updater` sont deux mécanismes
+totalement étanches - feeds différents (`latest.yml` vs `latest.json`), formats de signature
+différents, et surtout les deux apps ont des identifiants différents (`appId` Electron vs
+`com.bober.tauripoc`), donc Windows les traite comme deux applications distinctes. Sans rien
+faire de spécial, un utilisateur Electron existant ne verrait jamais passer la release Tauri, et
+installer celle-ci à côté laisserait les deux apps cohabiter plutôt que de remplacer l'ancienne.
+
+Approche retenue : une dernière release Electron "pont" - au démarrage (ou au prochain check
+d'update normal), elle détecte qu'une version Tauri existe, prévient l'utilisateur, télécharge
+et lance l'installeur Tauri (`.msi`/`.exe`) à sa place. Pas un vrai auto-update `electron-updater`
+au sens strict (le nouveau binaire n'est pas un fichier `latest.yml`-compatible), mais une
+expérience équivalente côté utilisateur. Reste à écrire côté `src/main/lib/appUpdater.ts` (app
+Electron), une fois le cycle de test/patch Tauri terminé et la version v7.0.0 prête à publier -
+pas avant, puisque ça suppose une release Tauri stable et taguée vers laquelle pointer.
+
 ### 4. Signature de code (bloquant pour une diffusion publique sur Windows)
 
 Sans certificat Authenticode, l'installeur `.msi`/`.exe` déclenchera l'avertissement
