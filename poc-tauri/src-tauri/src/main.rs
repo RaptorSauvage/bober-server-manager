@@ -114,23 +114,54 @@ struct ShellRequest {
 /// app-specific binary names (safe to call unconditionally - "not found" is the common, expected
 /// case on every quit path that never spawned a bot) - it waits for the kill to actually
 /// complete rather than just signaling it, closing whatever gap the Job Object left open.
+/// Temporary diagnostic aid (see shutdown_sidecar's own comment on the update-install bug this
+/// is chasing): appends a timestamped line to shutdown-debug.log next to the running exe. Never
+/// panics/propagates an error - a failed debug write must not break the real shutdown path it's
+/// instrumenting. Safe to leave in past the immediate investigation; it's a handful of small
+/// appends only on quit/update-install, not a hot path.
+fn debug_log(line: impl AsRef<str>) {
+    use std::io::Write;
+    let Ok(exe) = std::env::current_exe() else { return };
+    let Some(dir) = exe.parent() else { return };
+    let path = dir.join("shutdown-debug.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(f, "[{:?}] {}", std::time::SystemTime::now(), line.as_ref());
+    }
+}
+
 fn shutdown_sidecar(app_handle: &tauri::AppHandle) {
+    debug_log("shutdown_sidecar: start");
     let sidecar = app_handle.state::<SidecarHandle>();
-    let _ = sidecar.call_with_timeout("bot.stop", None, 3);
-    if let Some(child) = sidecar.child.lock().unwrap().take() {
-        let _ = child.kill();
+    let bot_stop_result = sidecar.call_with_timeout("bot.stop", None, 3);
+    debug_log(format!("shutdown_sidecar: bot.stop RPC result = {:?}", bot_stop_result.is_ok()));
+    match sidecar.child.lock().unwrap().take() {
+        Some(child) => {
+            let kill_result = child.kill();
+            debug_log(format!("shutdown_sidecar: CommandChild.kill() = {:?}", kill_result));
+        }
+        None => debug_log("shutdown_sidecar: sidecar.child was already None (no CommandChild to kill)"),
     }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         for image in ["bot-bin.exe", "sidecar-bin.exe"] {
-            let _ = std::process::Command::new("taskkill")
+            let output = std::process::Command::new("taskkill")
                 .args(["/F", "/T", "/IM", image])
                 .creation_flags(CREATE_NO_WINDOW)
                 .output();
+            match output {
+                Ok(o) => debug_log(format!(
+                    "shutdown_sidecar: taskkill /IM {image} -> status={:?} stdout={:?} stderr={:?}",
+                    o.status.code(),
+                    String::from_utf8_lossy(&o.stdout),
+                    String::from_utf8_lossy(&o.stderr)
+                )),
+                Err(e) => debug_log(format!("shutdown_sidecar: taskkill /IM {image} failed to launch: {e}")),
+            }
         }
     }
+    debug_log("shutdown_sidecar: done");
 }
 
 type PendingMap = Arc<Mutex<HashMap<i64, mpsc::Sender<RpcResponse>>>>;
@@ -1174,7 +1205,17 @@ fn app_update_install(app_handle: tauri::AppHandle, pending: tauri::State<Pendin
     // RunEvent::Exit, so an update on Windows left both running as orphans (real report: the NSIS
     // installer then also failed to overwrite the running sidecar-bin.exe, forcing a manual kill).
     shutdown_sidecar(&app_handle);
-    update.install(&bytes).map_err(|e| e.to_string())?;
+    // Real report: even with shutdown_sidecar() called right before this, the installer still
+    // silently failed to overwrite bot-bin.exe/sidecar-bin.exe on Windows (only the main .exe got
+    // replaced, no error surfaced - NSIS's default passive/`/P` update mode doesn't show per-file
+    // errors). taskkill /F is believed synchronous, but adding a small explicit margin here costs
+    // nothing and rules out a tight race between process teardown and the installer's first file
+    // write while shutdown-debug.log (see debug_log) gives real evidence either way.
+    std::thread::sleep(std::time::Duration::from_millis(750));
+    debug_log("app_update_install: about to call update.install()");
+    let install_result = update.install(&bytes);
+    debug_log(format!("app_update_install: update.install() returned = {:?}", install_result.is_err()));
+    install_result.map_err(|e| e.to_string())?;
     // macOS/Linux only in practice (see above): the new version is on disk but this process is
     // still running the old one, so an explicit restart is required - request_restart() (plain
     // tauri::AppHandle API, no extra plugin needed for it) still goes through RunEvent::Exit,
