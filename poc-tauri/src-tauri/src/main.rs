@@ -38,6 +38,7 @@ use rfd::FileDialog;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri_plugin_updater::UpdaterExt;
 
 #[derive(Serialize)]
 struct RpcRequest<'a> {
@@ -1026,24 +1027,120 @@ fn discord_bot_stop(sidecar: tauri::State<SidecarHandle>) -> Result<Value, Strin
     sidecar.call("discordBot.stop", None)
 }
 
-#[tauri::command]
-fn app_update_get_version(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
-    sidecar.call("appUpdate.getVersion", None)
+// MIGRATION-PLAN.md's "auto-update flow is not ported at all" gap, closed for real: the real
+// app's own appUpdater.ts (lib/appUpdater.ts) is Electron-specific top to bottom - it directly
+// imports `electron-updater`'s `autoUpdater` singleton, which has no Tauri equivalent and (per
+// that file's own doc comment) is "a no-op outside a packaged build" even when reached through
+// this PoC's sidecar at all. Earlier rounds routed these four commands through the sidecar to
+// that real-but-inert code anyway, purely to prove the four-command IPC shape end to end - this
+// round replaces that with the real thing: tauri-plugin-updater, driven directly from Rust,
+// no sidecar involved (there's nothing Node-side for an update check to do). The AppUpdateStatus
+// shape pushed here (state/version/percent/error) and the 'app-update-status-changed' event name
+// are both unchanged from before, so DataSettingsView.tsx's own update section - including its
+// "the Install button only appears once state is 'downloaded'" two-step UX - works verbatim.
+//
+// tauri.conf.json's plugins.updater.pubkey is a throwaway keypair generated for this PoC only
+// (`cargo tauri signer generate`) - proves the signing/verification mechanism end to end, but a
+// real release needs its own freshly-generated keypair, with the private half kept in CI
+// secrets and never committed anywhere (see README.md's own note on this).
+struct PendingUpdate(Mutex<Option<(tauri_plugin_updater::Update, Vec<u8>)>>);
+
+fn emit_update_status(app_handle: &tauri::AppHandle, status: Value) {
+    let _ = app_handle.emit("app-update-status-changed", status);
 }
 
 #[tauri::command]
-fn app_update_check(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
-    sidecar.call("appUpdate.check", None)
+fn app_update_get_version(app_handle: tauri::AppHandle) -> String {
+    app_handle.package_info().version.to_string()
 }
 
 #[tauri::command]
-fn app_update_status(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
-    sidecar.call("appUpdate.status", None)
+async fn app_update_check(app_handle: tauri::AppHandle, pending: tauri::State<'_, PendingUpdate>) -> Result<(), String> {
+    emit_update_status(&app_handle, serde_json::json!({ "state": "checking" }));
+
+    let updater = match app_handle.updater() {
+        Ok(updater) => updater,
+        Err(e) => {
+            emit_update_status(&app_handle, serde_json::json!({ "state": "error", "error": e.to_string() }));
+            return Ok(());
+        }
+    };
+    let update = match updater.check().await {
+        Ok(update) => update,
+        Err(e) => {
+            emit_update_status(&app_handle, serde_json::json!({ "state": "error", "error": e.to_string() }));
+            return Ok(());
+        }
+    };
+
+    let Some(update) = update else {
+        emit_update_status(&app_handle, serde_json::json!({ "state": "not-available" }));
+        return Ok(());
+    };
+
+    emit_update_status(&app_handle, serde_json::json!({ "state": "available", "version": update.version }));
+
+    // Mirrors the real appUpdater.ts's own documented choice: auto-download right after finding
+    // an update (one button covers check-and-download), but never auto-install - that stays a
+    // separate, explicit, later call (app_update_install below), so a download finishing never
+    // quits/restarts the app out from under whatever the user's doing elsewhere in it.
+    let version = update.version.clone();
+    let app_handle_progress = app_handle.clone();
+    let mut downloaded_bytes: usize = 0;
+    let download_result = update
+        .download(
+            move |chunk_len, total_len| {
+                downloaded_bytes += chunk_len;
+                let percent = total_len.filter(|&t| t > 0).map(|t| ((downloaded_bytes as f64 / t as f64) * 100.0).round() as i64);
+                emit_update_status(
+                    &app_handle_progress,
+                    serde_json::json!({ "state": "downloading", "version": version, "percent": percent }),
+                );
+            },
+            || {},
+        )
+        .await;
+
+    match download_result {
+        Ok(bytes) => {
+            emit_update_status(&app_handle, serde_json::json!({ "state": "downloaded", "version": update.version.clone() }));
+            *pending.0.lock().unwrap() = Some((update, bytes));
+        }
+        Err(e) => {
+            emit_update_status(&app_handle, serde_json::json!({ "state": "error", "error": e.to_string() }));
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
-fn app_update_install(sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
-    sidecar.call("appUpdate.install", None)
+fn app_update_status() -> Value {
+    // Deliberately stateless, unlike the four-method RPC shape this replaces: the real
+    // appUpdater.ts keeps a `currentStatus` module variable precisely because Electron's
+    // autoUpdater only ever reports progress through events, with no "ask me the current state"
+    // call of its own - DataSettingsView.tsx's own query-then-subscribe pattern (isComplete-style)
+    // needs *something* to return on mount, before the first real event arrives. The simplest
+    // honest answer here is 'idle': this command's own frontend caller only ever runs once, on
+    // mount, before any check has happened yet in this session - there's never a real prior
+    // status to report by the time it's asked.
+    serde_json::json!({ "state": "idle" })
+}
+
+#[tauri::command]
+fn app_update_install(app_handle: tauri::AppHandle, pending: tauri::State<PendingUpdate>) -> Result<(), String> {
+    let Some((update, bytes)) = pending.0.lock().unwrap().take() else {
+        return Err("No downloaded update ready to install - check for updates first.".to_string());
+    };
+    update.install(&bytes).map_err(|e| e.to_string())?;
+    // Windows: install() above already exits the app after launching the installer (its own doc
+    // comment), so this line never runs there. macOS/Linux: the new version is on disk but this
+    // process is still running the old one, so an explicit restart is required - request_restart()
+    // (plain tauri::AppHandle API, no extra plugin needed for it) goes through the exact same
+    // RunEvent::Exit this file's own quit-cleanup handler already covers, so the sidecar/bot get
+    // torn down cleanly on the way out here too, not just on a normal quit.
+    app_handle.request_restart();
+    Ok(())
 }
 
 #[tauri::command]
@@ -2003,11 +2100,13 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let handle = spawn_sidecar(app);
             app.manage(handle);
             app.manage(MaximizeState(Mutex::new(None)));
             app.manage(CloseToTrayState(Mutex::new(false)));
+            app.manage(PendingUpdate(Mutex::new(None)));
 
             // Built with an empty (all-zero) TraySummary first - the sidecar may not have
             // finished its own startup yet at this exact point (spawn_sidecar above only

@@ -26,6 +26,13 @@
     "active": true,
     "externalBin": ["binaries/sidecar-bin", "binaries/bot-bin"],
     "targets": ["deb", "msi", "nsis"],
-    "icon": ["icons/icon.png"]
+    "icon": ["icons/icon.png"],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://github.com/RaptorSauvage/bober-server-manager/releases/latest/download/latest.json"],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENFRDlCQjVBQjkzMEMxQUMKUldTc3dUQzVXcnZaemxONGlBT2FRcS91NHZsV2F4TTJGVHEyZGNVWDEzd1BwdmhCdloyaFZSUVEK"
+    }
   }
 }

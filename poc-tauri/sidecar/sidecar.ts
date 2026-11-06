@@ -139,7 +139,6 @@ import { syncAllPlayerActivityWatches } from '../../src/main/lib/playerActivityW
 import { getDefaultDataDir } from '../../src/main/lib/dataDir'
 import { detectLegacyCandidates, previewLegacyImport, runLegacyImport } from './legacyImport'
 import { getLocalNetworkIps } from '../../src/main/lib/webDashboard'
-import { appUpdateEvents, checkForUpdate, installDownloadedUpdate, getAppUpdateStatus } from '../../src/main/lib/appUpdater'
 import { serializeClusterBundle, parseClusterBundle } from '../../src/main/lib/clusterExport'
 import {
   applyScheduledRestart,
@@ -1185,27 +1184,13 @@ const methods: Record<string, (params: unknown) => unknown> = {
     stopDiscordBot()
     return getDiscordBotStatus()
   },
-  // Real, unmodified app.getVersion()/getAppUpdateStatus() - trivial, no network/Electron-
-  // internals risk either way.
-  'appUpdate.getVersion': () => app.getVersion(),
-  'appUpdate.status': () => getAppUpdateStatus(),
-  // Real, unmodified checkForUpdate() (lib/appUpdater.ts) - gated on the real `app.isPackaged`
-  // BEFORE it ever touches electron-updater/autoUpdater, and electronShim's app.isPackaged is
-  // always false, so this deterministically takes the early "Update checks only work in a
-  // packaged build, not in dev." honest-error path in this sandbox, the same honest-gap shape
-  // as checkForUpdate()'s own real dev-mode behavior - never a PoC-only stand-in. See "A
-  // twenty-sixth real page" in README.md.
-  'appUpdate.check': () => {
-    checkForUpdate()
-    return { ok: true }
-  },
-  // Real, unmodified installDownloadedUpdate() - unreachable in this sandbox in practice (the
-  // real UI only enables its button once status reaches 'downloaded', which checkForUpdate()
-  // above can never reach here), wired for completeness rather than left as a stub.
-  'appUpdate.install': () => {
-    installDownloadedUpdate()
-    return { ok: true }
-  },
+  // appUpdate.* used to live here, routed to the real (but Electron-only, and in this sandbox
+  // always dev-mode-stubbed - see checkForUpdate()'s own `app.isPackaged` gate) lib/appUpdater.ts
+  // just to prove the four-command IPC shape end to end. Replaced in main.rs by a real
+  // tauri-plugin-updater-backed implementation (app_update_check/_install/_status/_get_version) -
+  // there's nothing left for the sidecar to do for this feature, Tauri's own updater runs
+  // entirely in Rust. See main.rs's own comment on PendingUpdate for the full story.
+  //
   // Real, unmodified serializeClusterBundle() (lib/clusterExport.ts) - pretty-printed JSON of
   // every ARK/Minecraft profile plus Settings, written straight to disk exactly like the real
   // ipc/cluster.ts handler.
@@ -1668,11 +1653,11 @@ startupStatusEvents.once('complete', () => send({ event: 'app-startup-complete',
 // subscription, no explicit arm call needed" shape as every push source above except
 // lib/schedule.ts's own (see registerBackupScheduleWatcher below).
 steamcmdUpdateEvents.on('log', (profileId: string) => send({ event: 'steamcmd-update-log-changed', data: profileId }))
-// A seventh: lib/appUpdater.ts's own `appUpdateEvents` - same module-level EventEmitter.on
-// shape as every push source above. checkForUpdate() below is gated on the real
-// `app.isPackaged` (electronShim's is always false), so in this sandbox the only status this
-// ever actually pushes is a single 'error' - see "A twenty-sixth real page" in README.md.
-appUpdateEvents.on('status', (status) => send({ event: 'app-update-status-changed', data: status }))
+// lib/appUpdater.ts's own `appUpdateEvents` used to be forwarded from here too, the same
+// module-level EventEmitter.on shape as every push source above - removed along with the
+// appUpdate.* RPC handlers themselves (see this file's own comment where they used to be):
+// main.rs now pushes 'app-update-status-changed' directly from its own tauri-plugin-updater
+// integration, with nothing left for the sidecar to forward.
 
 // Real, unmodified adoptPersistedProcesses() - the real app's own answer to "what happens to a
 // running server if the Manager itself crashes or restarts": startServer() launches it detached

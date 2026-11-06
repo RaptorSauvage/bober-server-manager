@@ -247,18 +247,57 @@ confirmé via les vraies fonctions `store.ts`, pas une simulation.
 Le bouton natif de sélection manuelle n'a pas été testé avec un vrai clic humain (même gap que
 les autres sélecteurs natifs de ce PoC, voir section suivante).
 
-### 3. Le flux de mise à jour automatique n'est pas porté du tout
+### 3. Le flux de mise à jour automatique
 
-Le vrai code utilise `electron-updater` (`src/main/lib/appUpdater.ts`), spécifique à
-Electron - rien de commun avec Tauri. Il faut :
-- Adopter `tauri-plugin-updater` (le plugin officiel Tauri 2 pour l'auto-update).
-- Héberger un manifeste de mise à jour (JSON signé) quelque part (GitHub Releases convient,
-  Tauri sait le lire directement).
-- Signer les mises à jour avec une clé dédiée à l'auto-update (différente de la signature de
-  code Authenticode ci-dessous).
-- Porter la UI qui affiche l'état ("checking"/"downloading"/"ready") - `AnalyticsTab.tsx` et la
-  Settings screen en dépendent déjà côté affichage, mais la mécanique réelle derrière
-  (`checkForUpdate()`) doit être réécrite, pas juste re-brillée.
+**Fait, pas juste planifié.** Le vrai code utilisait `electron-updater`
+(`src/main/lib/appUpdater.ts`), spécifique à Electron - rien de commun avec Tauri, et de toute
+façon un no-op dans ce PoC (`checkForUpdate()` est gated sur le vrai `app.isPackaged`, toujours
+`false` via electronShim). Les rounds précédents routaient quand même les 4 commandes
+`appUpdate.*` à travers le sidecar jusqu'à ce code réel-mais-inerte, uniquement pour prouver la
+forme des 4 commandes IPC de bout en bout - ce round remplace ça par le vrai mécanisme :
+`tauri-plugin-updater`, piloté entièrement depuis Rust (`main.rs`), sans passer par le sidecar
+du tout (il n'y a rien côté Node à faire pour une vérification de mise à jour).
+
+- `tauri-plugin-updater` adopté (`UpdaterExt::updater()`/`check()`/`download()`/`install()`),
+  pas juste ajouté en dépendance - les 4 commandes `app_update_*` l'utilisent directement.
+- `tauri.conf.json` configure `bundle.createUpdaterArtifacts: true` (produit les artefacts
+  signés au build) et `plugins.updater.endpoints` pointant sur la convention GitHub Releases
+  (`.../releases/latest/download/latest.json`, le format que `tauri-action`/`cargo tauri build
+  --sign` produisent).
+- Signature : une vraie paire de clés Ed25519 a été générée (`cargo tauri signer generate`) pour
+  prouver le mécanisme de bout en bout - clé publique dans `tauri.conf.json`, clé privée
+  **jamais committée** (gardée hors du repo). **Une vraie diffusion a besoin de sa propre paire
+  fraîchement générée**, clé privée gardée en secret CI, jamais celle-ci.
+- L'UI (`DataSettingsView.tsx`'s "Manager updates") n'a pas eu besoin d'être retouchée : même
+  forme `AppUpdateStatus` (state/version/percent/error), même nom d'événement
+  (`app-update-status-changed`), même logique "le bouton Installer n'apparaît qu'une fois
+  `state === 'downloaded'`" déjà câblée par le round `app.html` plus haut dans ce document.
+- `app_update_check` reproduit le choix déjà documenté du vrai `appUpdater.ts` : un `check()`
+  télécharge automatiquement dès qu'une mise à jour est trouvée (un seul bouton couvre
+  check-et-download), mais n'installe jamais automatiquement - `app_update_install` reste un
+  appel explicite séparé, déclenché par ce bouton "Restart & install now" qui n'apparaît qu'une
+  fois l'état "downloaded" atteint.
+- `app_update_install`, une fois l'installation faite, appelle `AppHandle::request_restart()`
+  (API `tauri` directe, aucun plugin `process` nécessaire) - ce qui déclenche le même
+  `RunEvent::Exit` que le fix "processus pas coupés à la fermeture" plus haut dans ce document,
+  donc un redémarrage pour appliquer une mise à jour nettoie proprement le sidecar/bot au passage,
+  pas seulement une fermeture normale.
+
+**Vérifié en conditions réelles, pas juste à la compilation** : `cargo build` et le cross-check
+Windows compilent tous les deux proprement (y compris les chemins NSIS/MSI spécifiques Windows
+de `tauri-plugin-updater`). Sous Xvfb, `v0.1.0` (la vraie version lue depuis `tauri.conf.json`,
+pas une valeur statique) s'affiche en direct dans la barre de titre - confirme `app_update_get_
+version` de bout en bout. Les DevTools ouvertes, un vrai `window.api.appUpdate.check()` lancé
+depuis la console a produit la séquence d'événements réelle `{"state":"checking"}` puis (aucune
+vraie release publiée à ce jour sur ce dépôt) `{"state":"error","error":"Could not fetch a valid
+release JSON from the remote"}` - une vraie tentative réseau du plugin, un vrai échec géré
+proprement, pas un crash ni un stub silencieux. `getStatus()` répond `{"state":"idle"}` comme
+prévu en dehors de toute vérification en cours.
+
+**Ce qu'il reste** : publier une vraie release (via le pipeline CI du point 7 ci-dessous, une
+fois qu'il existe) pour vérifier le chemin "une mise à jour existe vraiment" - check trouve une
+version, télécharge, le bouton Installer apparaît, installe, redémarre sur la nouvelle version.
+Rien de ça n'est vérifiable sans une vraie release GitHub à pointer dessus.
 
 ### 4. Signature de code (bloquant pour une diffusion publique sur Windows)
 
@@ -346,20 +385,25 @@ promettre un temps de démarrage à l'utilisateur final.
 
 1. ~~App shell + pont `window.api` unifié~~ **(section 1) - fait.** Le vrai `App.tsx` tourne,
    navigation confirmée via l'app compilée.
-2. **Finir la migration de données** (section 2 - profils, bans, whitelist, watchlist et tokens
-   sont déjà importés) - reste l'historique d'événements de mods et les clés API restantes, plus
-   confirmer sur une vraie machine Windows quel nom de dossier (`name` vs `productName`, réglé
-   pour tout build futur par `legacyUserDataCompat.ts` mais pas vérifié sur une install déjà
-   existante) l'appli Electron réelle utilise effectivement.
-3. **Audit module par module** des 39 fichiers `src/main/ipc/*.ts` contre les commandes
-   `main.rs` existantes - combler les trous avant de considérer la surface "complète" (aucun
-   trou connu à ce jour, mais pas formellement vérifié module par module).
-4. **QA manuelle sur Windows** : vrais dialogues natifs, chaque bouton de confirmation, vrai
-   serveur ARK/Minecraft si possible, et l'état minimize/maximize de la fenêtre (non vérifiable
-   dans ce sandbox Xvfb headless, qui n'a pas de vrai gestionnaire de fenêtres).
-5. **Auto-update** (`tauri-plugin-updater`) - nécessaire avant toute diffusion au-delà d'un
-   cercle de testeurs, puisque sans lui il n'y a aucune façon de pousser le prochain correctif.
-6. **Pipeline CI multi-OS**, en parallèle de 2-4 maintenant que l'App shell est stable.
+2. ~~Finir la migration de données~~ **(section 2) - fait.** Les sept types de données (profils,
+   bans, whitelist, watchlist, tokens, clés API, historique d'événements de mods) sont tous
+   importés. Reste seulement : confirmer sur une vraie machine Windows quel nom de dossier
+   (`name` vs `productName`, réglé pour tout build futur par `legacyUserDataCompat.ts` mais pas
+   vérifié sur une install déjà existante) l'appli Electron réelle utilise effectivement.
+3. ~~Audit de la surface IPC~~ **(section 1, suite) - fait.** Diff mécanique du vrai preload
+   contre `windowApi.ts` plutôt qu'une relecture des 39 fichiers `src/main/ipc/*.ts` un par un -
+   2 trous trouvés et comblés (`profiles.importFromInstall`,
+   `minecraft.backup.getScheduleStatus`), 0 restant.
+4. ~~Auto-update~~ **(section 3) - fait.** `tauri-plugin-updater` branché pour de vrai, vérifié
+   en conditions réelles (voir cette section) - nécessaire avant toute diffusion au-delà d'un
+   cercle de testeurs, puisque sans lui il n'y avait aucune façon de pousser le prochain correctif.
+5. **QA manuelle sur Windows** : vrais dialogues natifs, chaque bouton de confirmation, vrai
+   serveur ARK/Minecraft si possible, l'état minimize/maximize de la fenêtre, et maintenant le
+   chemin "une vraie mise à jour existe" de l'auto-update - rien de tout ça n'est vérifiable
+   dans ce sandbox Xvfb headless, qui n'a ni vrai gestionnaire de fenêtres ni release GitHub
+   publiée à pointer.
+6. **Pipeline CI multi-OS** - prérequis pour publier une vraie release et donc pour la dernière
+   étape de QA de l'auto-update ci-dessus, en plus de livrer des builds de façon reproductible.
 7. **Signature de code Windows** - dernière étape avant diffusion publique, une fois le reste
    stabilisé (signer un binaire qui va encore beaucoup bouger n'apporte rien).
 
