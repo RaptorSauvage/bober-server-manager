@@ -208,7 +208,7 @@ node sidecar/build.mjs          # bundles sidecar/dist/sidecar.cjs
 node sidecar/build-sea.mjs      # builds dist/sidecar-bin AND copies it into src-tauri/binaries/
 node frontend/build-react.mjs   # bundles manager-log.js (needed before opening manager-log.html)
 cd src-tauri && cargo build     # or: cargo tauri dev, if the Tauri CLI is installed
-./target/debug/tauri_poc_shell
+./target/debug/Bober-Server-Manager
 ```
 
 `build-bot-sea.mjs` is optional - skip it and `bot_start` falls back to `discordBot.ts`'s normal
@@ -3997,3 +3997,59 @@ script, against a synthetic page reproducing `.settings-view > .server-detail-he
 shape, run headless via Playwright - confirmed the button appears next to "Back" once that
 structure mounts. Needs the user's own rebuild to confirm end-to-end on a real Windows box with
 real data, same as the tray feature above.
+
+## Three more real reports: a stale Debug button, orphaned processes on quit, and the process name
+
+Three separate things, reported together in one message, all from the same real testing session.
+
+**The Debug button injection also fired on a server's Analytics tab.** Its `MutationObserver`
+(added in the round just above) only checked for `.settings-view` on the mounted node - not
+unique enough, since `ServerDetail/index.tsx` and `MinecraftServerDetail/index.tsx` (the
+per-server detail screens, defaulting to their own "Analytics" tab) use the exact same
+`className="server-detail settings-view"` wrapper and `.server-detail-header` for their own
+"← Back" + server-name row. Fixed by also requiring the header's `<h1>` text to be literally
+"Settings" - the one thing that's actually unique to the real Settings screen among the three,
+same shape as the removed Tools-menu shortcut's own `trigger.textContent.trim() === 'Tools'`
+check. Verified with a synthetic Playwright page reproducing both DOM shapes side by side: the
+server-detail case gets no button, the Settings case does.
+
+**Quitting the Manager left the sidecar - and the Discord bot - running.** Nothing in `main.rs`
+ever called `kill()` on anything, on any quit path (window close, File > Quit, tray > Quitter) -
+the Tauri process just exited and left its whole child process tree (the sidecar, and the
+Discord bot it spawns as its own child via `BOT_LAUNCH_COMMAND`) running in the background,
+Discord gateway connection and all. Fixed in two parts: `spawn_sidecar` now calls
+`set_process_group(true)` on the sidecar's `Command`, which puts it in its own process group on
+Unix or a Windows Job Object on Windows (`tauri-plugin-shell`'s own `process/job_object.rs`) -
+since the bot is spawned *by* the sidecar rather than by Rust directly, it inherits that same
+group/job automatically (standard OS behavior for a child's child, unless something explicitly
+opts out of it - Node's `spawn()`/`fork()` don't), so there was no need to track its PID
+separately. `main()`'s `.run()` now handles `RunEvent::Exit` (fires once, right before the
+process actually exits, on every quit path) by best-effort asking the sidecar to stop the bot
+gracefully first (the same `bot.stop` RPC the Settings "Stop bot" button already used), then
+killing the sidecar itself - which, thanks to the group/job, takes the bot down with it even if
+the graceful stop didn't finish in time. `SharedChild` had to become
+`Arc<Mutex<Option<CommandChild>>>` (from a bare `CommandChild`) for this: `CommandChild::kill()`
+consumes `self`, and the only way to get an owned value out from under a `Mutex` still held by
+other `Arc` clones (the reader task's own handle) is to `.take()` an `Option` rather than borrow
+one. Verified live under Xvfb: clicking File > Quit now leaves zero processes behind (confirmed
+via `ps`, before and after) - previously `sidecar-bin` survived as an orphan every time. Also
+compiles clean on the Windows cross-target check, which exercises the real Job Object code this
+depends on, not just the Linux process-group path the native build alone would prove.
+
+**The process itself was still named `tauri_poc_shell` in Task Manager**, unlike the real
+Electron app's own `Bober Server Manager.exe` (`package.json`'s `build.productName`). Two
+separate names were actually involved, and only one could be fixed to match exactly:
+`tauri.conf.json`'s `productName` (now `"Bober Server Manager"`) controls the *packaged* app's
+executable name once bundled via `cargo tauri build` - that one genuinely matches now, spaces
+included, since Tauri's bundler isn't bound by Rust's own naming rules. The raw `cargo build`/
+`cargo run` dev binary is a different thing entirely, named via Cargo's own `[[bin]] name` - and
+rustc flatly rejects a crate name with a space in it (`invalid character ' ' in crate name`, hit
+on the first attempt at `name = "Bober Server Manager"`). Settled for the closest valid
+stand-in, hyphens (`Bober-Server-Manager`), added as an explicit `[[bin]]` table in `Cargo.toml`
+pointing at `src/main.rs` rather than relying on Cargo's own implicit default (which would have
+stayed `tauri_poc_shell`, named after `[package] name` - left untouched, since renaming it would
+ripple into every `.fingerprint`/build-cache path for no real benefit). Confirmed via `ls
+target/debug/` that the compiled file really is `Bober-Server-Manager` now, and via a fresh Xvfb
+boot-and-quit cycle (log line reads `(Bober-Server-Manager:1998)`, not the old name) that nothing
+else - the sidecar spawn, the RunEvent::Exit cleanup above, the Windows cross-target check -
+depends on the binary's own filename anywhere, so this was a safe, self-contained rename.

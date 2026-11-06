@@ -3,6 +3,21 @@ name = "tauri_poc_shell"
 version = "0.1.0"
 edition = "2024"
 
+# Explicit rather than relying on Cargo's own default (src/main.rs named after [package] name,
+# i.e. plain "tauri_poc_shell") - a real user noticed the compiled process still showed up as
+# "tauri_poc_shell.exe" in Task Manager, unlike the real Electron app's own "Bober Server
+# Manager.exe" (package.json's own `build.productName`). Can't match that exactly here - rustc
+# rejects a crate/bin name with spaces ("invalid character ' ' in crate name", hit it first try)
+# - hyphens are the closest valid stand-in (unlike `[package] name`, which must stay
+# underscore-only, Cargo accepts them in `[[bin]] name` and preserves them in the output
+# filename verbatim). This only renames the raw `cargo build`/`cargo run` dev binary; the
+# packaged app built via `cargo tauri build` gets its executable's real name from `productName`
+# below instead, which *can* and does carry the exact spaced "Bober Server Manager" - see
+# README.md's own note on this split for why the two can't just be made consistent one way.
+[[bin]]
+name = "Bober-Server-Manager"
+path = "src/main.rs"
+
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
