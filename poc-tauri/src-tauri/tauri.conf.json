@@ -26,7 +26,7 @@
     "active": true,
     "externalBin": ["binaries/sidecar-bin", "binaries/bot-bin"],
     "targets": ["deb", "msi", "nsis"],
-    "icon": ["icons/icon.png"],
+    "icon": ["icons/icon.png", "icons/icon.ico"],
     "createUpdaterArtifacts": true
   },
   "plugins": {
