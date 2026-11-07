@@ -299,6 +299,36 @@ fois qu'il existe) pour vérifier le chemin "une mise à jour existe vraiment" -
 version, télécharge, le bouton Installer apparaît, installe, redémarre sur la nouvelle version.
 Rien de ça n'est vérifiable sans une vraie release GitHub à pointer dessus.
 
+**Chasse au faux bug "sidecar-bin.exe/bot-bin.exe jamais mis à jour" (v0.1.1 à v0.1.6) :** après
+plusieurs updates réelles sur machine Windows, `sidecar-bin.exe`/`bot-bin.exe` semblaient garder
+une date de modification "ancienne" alors que l'exe principal et `uninstall.exe` se mettaient à
+jour à chaque fois - laissant penser qu'un processus verrouillé empêchait l'installeur de les
+écraser. Plusieurs correctifs défensifs ont été ajoutés en retraçant la piste (tous gardés,
+inoffensifs) : `shutdown_sidecar()` appelé explicitement avant `update.install()` (pas seulement
+sur `RunEvent::Exit`), un backstop `taskkill /F /T` ciblé sur ces deux binaires, et
+`wait_until_unlocked()` qui vérifie activement (retry jusqu'à 5s) que le fichier est ouvrable en
+écriture exclusive avant de lancer l'installeur - plus un log de diagnostic
+(`shutdown-debug.log`, à côté de l'exe) ajouté pour tracer chaque étape.
+
+**Conclusion, confirmée en extrayant un installeur NSIS réel (`7z x`) et en comparant son contenu
+embarqué** : il n'y a jamais eu de bug de verrouillage. L'installeur contient bien, à chaque
+build, les binaires fraîchement compilés (contenu source confirmé dedans), et les écrase
+correctement à chaque install - mais NSIS, par défaut, **préserve la date de modification
+d'origine du fichier source** plutôt que de la tamponner à l'heure de l'installation. Chaque
+nouveau build CI compile `sidecar-bin.exe`/`bot-bin.exe` à un instant légèrement antérieur à la
+fin de compilation de l'exe principal (pipeline séquentiel : sidecar/bot d'abord, Rust ensuite),
+donc leur date semblait "ancienne" par comparaison alors qu'elle correspondait en fait au build
+en cours - un faux signal, pas un vrai problème. Un Explorateur de fichiers resté ouvert depuis
+le début des tests (vue non rafraîchie) a aussi contribué à la confusion sur plusieurs rounds.
+
+**Point mineur réel qui reste** : le branding `rcedit` (FileDescription "Bober Server Manager -
+Sidecar"/"- Discord Bot" + icône, ajouté en v0.1.3 pour distinguer ces process dans le
+Gestionnaire des tâches) ne semble jamais pris - confirmé absent des binaires extraits d'un
+installeur v0.1.6. Purement cosmétique (lisibilité du Gestionnaire des tâches), pas encore
+investigué plus loin faute de priorité - `npx -y rcedit@latest` tourne sans erreur dans le build
+CI (le step ne fail pas), donc soit il no-op silencieusement sur ces fichiers, soit son résultat
+est écrasé par une étape suivante du pipeline.
+
 **Bascule des utilisateurs Electron existants vers Tauri (décidé, pas encore implémenté) :**
 `electron-updater` (le vrai `appUpdater.ts`) et `tauri-plugin-updater` sont deux mécanismes
 totalement étanches - feeds différents (`latest.yml` vs `latest.json`), formats de signature
