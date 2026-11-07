@@ -321,14 +321,19 @@ donc leur date semblait "ancienne" par comparaison alors qu'elle correspondait e
 en cours - un faux signal, pas un vrai problème. Un Explorateur de fichiers resté ouvert depuis
 le début des tests (vue non rafraîchie) a aussi contribué à la confusion sur plusieurs rounds.
 
-**Branding `rcedit` - fait (v0.1.7), root cause trouvée** : le package npm `rcedit` n'a jamais eu
-de binaire CLI - c'est une librairie JS pure (`import { rcedit } from 'rcedit'`). L'appel
+**Branding `rcedit` - abandonné (v0.1.7)** : le package npm `rcedit` n'a jamais eu de binaire CLI
+- c'est une librairie JS pure (`import { rcedit } from 'rcedit'`). L'appel
 `npx -y rcedit@latest <fichier> --set-version-string ...` échouait silencieusement à chaque build
 depuis v0.1.3 ("could not determine executable to run"), sans jamais faire échouer le step CI ni
-patcher quoi que ce soit - confirmé en reproduisant localement (binaire PE factice compilé avec
-mingw, testé via Wine puisque le binaire `rcedit` vendu a besoin de Wine hors Windows). Corrigé
-en utilisant la vraie API programmatique (`rcedit` ajouté en vraie devDependency), vérifié
-localement que `FileDescription`/`ProductName` atterrissent bien dans le binaire cette fois.
+patcher quoi que ce soit - root cause confirmée en reproduisant localement (binaire PE factice
+compilé avec mingw, testé via Wine). Le switch vers la vraie API programmatique a bien fonctionné
+en local (`FileDescription`/`ProductName` atterrissent dans le binaire), **mais sur le vrai
+runner `windows-latest` de CI, cet appel reste bloqué indéfiniment** (job resté coincé 1h+, sans
+aucune sortie, forcé à être annulé manuellement) - cause non identifiée (peut-être lié au
+wrapper interne `cross-spawn-windows-exe` du package). Vu que c'est purement cosmétique (juste le
+libellé affiché dans le Gestionnaire des tâches), le code a été entièrement retiré plutôt que de
+risquer de bloquer chaque future release. Pas de meilleure piste pour l'instant sans réécrire ça
+en appelant directement un `rcedit.exe` vendu, en contournant le package npm entièrement.
 
 **Bascule des utilisateurs Electron existants vers Tauri (décidé, pas encore implémenté) :**
 `electron-updater` (le vrai `appUpdater.ts`) et `tauri-plugin-updater` sont deux mécanismes

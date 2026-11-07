@@ -21,7 +21,6 @@ import { execFileSync } from 'node:child_process'
 import { copyFileSync, chmodSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { rcedit } from 'rcedit'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const nodeBin = process.execPath
@@ -69,27 +68,12 @@ mkdirSync(binariesDir, { recursive: true })
 copyFileSync(outBin, externalBinPath)
 chmodSync(externalBinPath, 0o755)
 
-// Windows only: a SEA binary is a straight copy of the `node` executable with a blob injected,
-// so without this it keeps Node's own version resource verbatim - Task Manager shows it as
-// "Node.js JavaScript Runtime", indistinguishable from any other Node process on the machine,
-// and with the generic default icon. rcedit (the same tool electron-builder uses to rebrand
-// electron.exe) patches that resource in place post-build. Real report: this process is still a
-// real child of the main app (nests under it in Task Manager's tree) - this only fixes the
-// label/icon, not the grouping itself, which Windows already does correctly by parent/child.
-//
-// Must be the JS API (`import { rcedit } from 'rcedit'`), not `npx rcedit <args>` - the npm
-// package has no bin entry at all (confirmed: `npx rcedit` fails with "could not determine
-// executable to run"), it's a library only. The CLI-flag version of this call used to run that
-// broken npx invocation silently, without ever failing the build or patching anything.
-if (windows) {
-  await rcedit(externalBinPath, {
-    'version-string': {
-      FileDescription: 'Bober Server Manager - Sidecar',
-      ProductName: 'Bober Server Manager'
-    },
-    icon: path.join(here, '..', 'src-tauri', 'icons', 'icon.ico')
-  })
-}
+// Windows Task Manager branding via rcedit was tried and reverted (see MIGRATION-PLAN.md) - the
+// npm `rcedit` package hangs indefinitely on GitHub's windows-latest runners (confirmed: CI job
+// stuck 1h+ with zero output right after this point, had to be force-cancelled), for reasons not
+// worth chasing further for a purely cosmetic Task Manager label. Not reattempting without a
+// fundamentally different approach (e.g. a vendored rcedit.exe invoked directly, bypassing the
+// npm package's wrapper entirely).
 
 console.log(`sidecar SEA binary -> ${outBin}`)
 console.log(`                  -> ${externalBinPath} (Tauri externalBin)`)

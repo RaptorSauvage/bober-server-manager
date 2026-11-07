@@ -15,7 +15,6 @@ import { execFileSync } from 'node:child_process'
 import { copyFileSync, chmodSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { rcedit } from 'rcedit'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const nodeBin = process.execPath
@@ -58,20 +57,8 @@ mkdirSync(binariesDir, { recursive: true })
 copyFileSync(outBin, externalBinPath)
 chmodSync(externalBinPath, 0o755)
 
-// Windows only: see build-sea.mjs's identical block for why this is needed at all (SEA binaries
-// keep Node's own "Node.js JavaScript Runtime" version resource otherwise) and for why this must
-// be the JS API, not `npx rcedit <args>` (the package has no bin entry - that silently did
-// nothing, every build). This one gets its own FileDescription distinct from the sidecar's, so
-// the two are tellable apart in Task Manager instead of both just reading "Node.js".
-if (windows) {
-  await rcedit(externalBinPath, {
-    'version-string': {
-      FileDescription: 'Bober Server Manager - Discord Bot',
-      ProductName: 'Bober Server Manager'
-    },
-    icon: path.join(here, '..', 'src-tauri', 'icons', 'icon.ico')
-  })
-}
+// Windows Task Manager branding via rcedit was tried and reverted - see build-sea.mjs's identical
+// comment for why (the npm package hangs indefinitely on GitHub's windows-latest runners).
 
 console.log(`bot SEA binary -> ${outBin}`)
 console.log(`              -> ${externalBinPath} (Tauri externalBin)`)
