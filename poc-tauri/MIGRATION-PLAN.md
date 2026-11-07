@@ -321,13 +321,14 @@ donc leur date semblait "ancienne" par comparaison alors qu'elle correspondait e
 en cours - un faux signal, pas un vrai problème. Un Explorateur de fichiers resté ouvert depuis
 le début des tests (vue non rafraîchie) a aussi contribué à la confusion sur plusieurs rounds.
 
-**Point mineur réel qui reste** : le branding `rcedit` (FileDescription "Bober Server Manager -
-Sidecar"/"- Discord Bot" + icône, ajouté en v0.1.3 pour distinguer ces process dans le
-Gestionnaire des tâches) ne semble jamais pris - confirmé absent des binaires extraits d'un
-installeur v0.1.6. Purement cosmétique (lisibilité du Gestionnaire des tâches), pas encore
-investigué plus loin faute de priorité - `npx -y rcedit@latest` tourne sans erreur dans le build
-CI (le step ne fail pas), donc soit il no-op silencieusement sur ces fichiers, soit son résultat
-est écrasé par une étape suivante du pipeline.
+**Branding `rcedit` - fait (v0.1.7), root cause trouvée** : le package npm `rcedit` n'a jamais eu
+de binaire CLI - c'est une librairie JS pure (`import { rcedit } from 'rcedit'`). L'appel
+`npx -y rcedit@latest <fichier> --set-version-string ...` échouait silencieusement à chaque build
+depuis v0.1.3 ("could not determine executable to run"), sans jamais faire échouer le step CI ni
+patcher quoi que ce soit - confirmé en reproduisant localement (binaire PE factice compilé avec
+mingw, testé via Wine puisque le binaire `rcedit` vendu a besoin de Wine hors Windows). Corrigé
+en utilisant la vraie API programmatique (`rcedit` ajouté en vraie devDependency), vérifié
+localement que `FileDescription`/`ProductName` atterrissent bien dans le binaire cette fois.
 
 **Bascule des utilisateurs Electron existants vers Tauri (décidé, pas encore implémenté) :**
 `electron-updater` (le vrai `appUpdater.ts`) et `tauri-plugin-updater` sont deux mécanismes
