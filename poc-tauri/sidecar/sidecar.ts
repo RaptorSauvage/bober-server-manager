@@ -90,6 +90,7 @@ import { getGroupConsoleBacklog, watchGroupConsole } from '../../src/main/lib/gr
 import { installManagedSteamCmd, getManagedSteamCmdStatus } from '../../src/main/lib/steamcmdInstaller'
 import { addFirewallRulesForSteamCmd } from '../../src/main/lib/firewall'
 import { getGameVersion, getCachedGameVersion, setCachedGameVersion } from '../../src/main/lib/serverVersion'
+import { registerServerVersionWatcher, checkAllGameVersionsOnStartup } from '../../src/main/lib/serverVersionWatcher'
 import { getLatestBuildIdCache } from '../../src/main/lib/updateCheck'
 import {
   createBackup,
@@ -1669,7 +1670,21 @@ steamcmdUpdateEvents.on('log', (profileId: string) => send({ event: 'steamcmd-up
 // lifetime, which is the right analog: a new sidecar process is spawned exactly when the real
 // app's main process would be (a fresh `cargo tauri` run, not a page reload), so "restart the
 // whole app" and "a new sidecar process starts" are the same event in this architecture.
+// Real, unmodified registerServerVersionWatcher() - real report: Dashboard cards' version
+// label got cached once (the first server.getGameVersion call, cache-then-live-read - see that
+// RPC handler's own comment) and then never again, so updating a server to a new game version
+// left the card showing the old one forever. The real index.ts registers this BEFORE adoption
+// below, specifically so it still catches the running-status broadcast adoptPersistedProcesses
+// itself emits for an already-running adopted server, not just a fresh start/stop/update -
+// mirrored here in the same order.
+registerServerVersionWatcher()
+
 adoptPersistedProcesses(listProfiles(), getRunningPids(), getRunningStartedAt())
+
+// Real, unmodified checkAllGameVersionsOnStartup() - same real index.ts ordering, right after
+// adoption: every profile, not just running ones, so a stopped server's log from its last run
+// shows a version immediately instead of waiting for its next start.
+checkAllGameVersionsOnStartup(listProfiles())
 
 // Real, unmodified registerBackupScheduleWatcher() - unlike profileEvents/managerLogEvents/
 // serverEvents above, lib/schedule.ts's own serverEvents.on('status', ...) subscription is
