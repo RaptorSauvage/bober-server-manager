@@ -197,7 +197,11 @@ const api: Api = {
     deleteOverride: (profileId) => ipcRenderer.invoke(IPC.iniTemplatesDeleteOverride, profileId),
     apply: (profileId) => ipcRenderer.invoke(IPC.iniTemplatesApply, profileId),
     applyAll: () => ipcRenderer.invoke(IPC.iniTemplatesApplyAll),
-    readFile: (filePath) => ipcRenderer.invoke(IPC.iniTemplatesReadFile, filePath)
+    readFile: (filePath) => ipcRenderer.invoke(IPC.iniTemplatesReadFile, filePath),
+    generatePending: (profileId) => ipcRenderer.invoke(IPC.iniTemplatesGeneratePending, profileId),
+    getPendingStatus: (profileId) => ipcRenderer.invoke(IPC.iniTemplatesGetPendingStatus, profileId),
+    confirmPending: (profileId) => ipcRenderer.invoke(IPC.iniTemplatesConfirmPending, profileId),
+    discardPending: (profileId) => ipcRenderer.invoke(IPC.iniTemplatesDiscardPending, profileId)
   },
   fileBrowser: {
     list: (profileId: string, relativePath: string) => ipcRenderer.invoke(IPC.fileBrowserList, profileId, relativePath),

@@ -1,5 +1,11 @@
 import { Fragment, useEffect, useState } from 'react'
-import type { IniTemplateApplyResult, IniTemplateContent, IniTemplateProfileOverride, ServerProfile } from '@shared/types'
+import type {
+  IniTemplateApplyResult,
+  IniTemplateContent,
+  IniTemplatePendingResult,
+  IniTemplateProfileOverride,
+  ServerProfile
+} from '@shared/types'
 import { confirmAction } from '../lib/confirmAction'
 
 interface IniTemplatesViewProps {
@@ -20,7 +26,14 @@ interface OverrideFormState {
  *  plus an optional per-server override, merged key-by-key into each profile's real config
  *  files (an existing key is updated right where it already is, a new one is inserted into
  *  its section), the override winning over the generic template for anything both set (see
- *  src/main/lib/iniTemplates.ts). */
+ *  src/main/lib/iniTemplates.ts).
+ *
+ *  Per-server Apply is a two-step generate/confirm flow: "Generate Preview" stages the merged
+ *  result into a real `*.pending.ini` file sitting right next to the real one (so it opens in
+ *  whatever editor the user already hand-edits configs with via "Open Preview"), and nothing
+ *  about the real file changes until "Confirm Replace" is clicked - at which point whatever
+ *  the pending file holds, hand-edits included, becomes the real file verbatim. "Apply to
+ *  All" (header button) deliberately skips this staging step - see its own doc comment. */
 export default function IniTemplatesView({ profiles, onBack }: IniTemplatesViewProps): JSX.Element {
   // Same convention as the Dashboard/PlayersView: a server hidden there is hidden here too
   // (nothing to apply a template to that the user has deliberately tucked away), and the
@@ -39,11 +52,19 @@ export default function IniTemplatesView({ profiles, onBack }: IniTemplatesViewP
   const [genericImportError, setGenericImportError] = useState('')
   const [overridesByProfile, setOverridesByProfile] = useState<Record<string, IniTemplateProfileOverride | null>>({})
 
-  const [applyingId, setApplyingId] = useState<string | null>(null)
   const [applyingAll, setApplyingAll] = useState(false)
   const [applyResults, setApplyResults] = useState<IniTemplateApplyResult[] | null>(null)
   const [applyErrorById, setApplyErrorById] = useState<Record<string, string>>({})
   const [applySuccessId, setApplySuccessId] = useState<string | null>(null)
+
+  // Generate/Confirm staging state for the per-server flow - pendingByProfile mirrors what
+  // generatePendingIniTemplate most recently staged on disk for each profile (or null once
+  // confirmed/discarded/never generated), refreshed from getPendingStatus on load so leaving
+  // and coming back to this page doesn't lose track of an already-staged preview. busyId is
+  // the one profile currently mid-generate/confirm/discard (only one action per row at a time
+  // makes sense, so a single id covers all three instead of three separate maps).
+  const [pendingByProfile, setPendingByProfile] = useState<Record<string, IniTemplatePendingResult | null>>({})
+  const [busyId, setBusyId] = useState<string | null>(null)
 
   const [overrideForm, setOverrideForm] = useState<OverrideFormState | null>(null)
   const [savingOverride, setSavingOverride] = useState(false)
@@ -57,12 +78,14 @@ export default function IniTemplatesView({ profiles, onBack }: IniTemplatesViewP
   async function refresh(): Promise<void> {
     setLoading(true)
     try {
-      const [genericContent, overrideEntries] = await Promise.all([
+      const [genericContent, overrideEntries, pendingEntries] = await Promise.all([
         window.api.iniTemplates.getGeneric(),
-        Promise.all(visibleProfiles.map(async (p) => [p.id, await window.api.iniTemplates.getOverride(p.id)] as const))
+        Promise.all(visibleProfiles.map(async (p) => [p.id, await window.api.iniTemplates.getOverride(p.id)] as const)),
+        Promise.all(visibleProfiles.map(async (p) => [p.id, await window.api.iniTemplates.getPendingStatus(p.id)] as const))
       ])
       setGeneric(genericContent)
       setOverridesByProfile(Object.fromEntries(overrideEntries))
+      setPendingByProfile(Object.fromEntries(pendingEntries))
     } finally {
       setLoading(false)
     }
@@ -137,18 +160,51 @@ export default function IniTemplatesView({ profiles, onBack }: IniTemplatesViewP
     }
   }
 
-  async function applyOne(profile: ServerProfile): Promise<void> {
-    setApplyingId(profile.id)
+  async function generatePending(profile: ServerProfile): Promise<void> {
+    setBusyId(profile.id)
     setApplyErrorById((prev) => ({ ...prev, [profile.id]: '' }))
     setApplySuccessId(null)
     try {
-      await window.api.iniTemplates.apply(profile.id)
+      const pending = await window.api.iniTemplates.generatePending(profile.id)
+      setPendingByProfile((prev) => ({ ...prev, [profile.id]: pending }))
+    } catch (err) {
+      setApplyErrorById((prev) => ({ ...prev, [profile.id]: (err as Error).message }))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function openPendingFile(profile: ServerProfile, relativePath: string): Promise<void> {
+    try {
+      await window.api.fileBrowser.open(profile.id, relativePath)
+    } catch (err) {
+      setApplyErrorById((prev) => ({ ...prev, [profile.id]: (err as Error).message }))
+    }
+  }
+
+  async function confirmPending(profile: ServerProfile): Promise<void> {
+    setBusyId(profile.id)
+    setApplyErrorById((prev) => ({ ...prev, [profile.id]: '' }))
+    try {
+      await window.api.iniTemplates.confirmPending(profile.id)
+      setPendingByProfile((prev) => ({ ...prev, [profile.id]: null }))
       setApplySuccessId(profile.id)
       setTimeout(() => setApplySuccessId((prev) => (prev === profile.id ? null : prev)), 2500)
     } catch (err) {
       setApplyErrorById((prev) => ({ ...prev, [profile.id]: (err as Error).message }))
     } finally {
-      setApplyingId(null)
+      setBusyId(null)
+    }
+  }
+
+  async function discardPending(profile: ServerProfile): Promise<void> {
+    if (!confirmAction(`Discard the staged preview for ${profile.name}? Its real config files stay exactly as they are.`)) return
+    setBusyId(profile.id)
+    try {
+      await window.api.iniTemplates.discardPending(profile.id)
+      setPendingByProfile((prev) => ({ ...prev, [profile.id]: null }))
+    } finally {
+      setBusyId(null)
     }
   }
 
@@ -170,7 +226,9 @@ export default function IniTemplatesView({ profiles, onBack }: IniTemplatesViewP
 
   function renderOverrideRow(profile: ServerProfile): JSX.Element {
     const override = overridesByProfile[profile.id]
+    const pending = pendingByProfile[profile.id]
     const customSessionName = override?.sessionName.trim()
+    const busy = busyId === profile.id
     return (
       <tr key={profile.id}>
         <td>{profile.name}</td>
@@ -190,9 +248,28 @@ export default function IniTemplatesView({ profiles, onBack }: IniTemplatesViewP
           <button type="button" onClick={() => void openOverrideForm(profile)}>
             Edit Override
           </button>
-          <button type="button" onClick={() => void applyOne(profile)} disabled={applyingId === profile.id}>
-            {applyingId === profile.id ? 'Applying...' : 'Apply'}
-          </button>
+          {pending ? (
+            <>
+              <button type="button" onClick={() => void openPendingFile(profile, pending.gameUserSettingsIniPath)} disabled={busy}>
+                Open Preview
+              </button>
+              {pending.gameIniPath && (
+                <button type="button" onClick={() => void openPendingFile(profile, pending.gameIniPath!)} disabled={busy}>
+                  Open Game.ini Preview
+                </button>
+              )}
+              <button type="button" className="btn-accent" onClick={() => void confirmPending(profile)} disabled={busy}>
+                {busy ? 'Confirming...' : 'Confirm Replace'}
+              </button>
+              <button type="button" className="danger" onClick={() => void discardPending(profile)} disabled={busy}>
+                Discard
+              </button>
+            </>
+          ) : (
+            <button type="button" onClick={() => void generatePending(profile)} disabled={busy}>
+              {busy ? 'Generating...' : 'Generate Preview'}
+            </button>
+          )}
         </td>
       </tr>
     )
@@ -213,13 +290,17 @@ export default function IniTemplatesView({ profiles, onBack }: IniTemplatesViewP
         </button>
       </header>
       <p className="empty-state">
-        Write a shared base config once, then only the genuinely server-specific lines per server. Applying merges
-        both into that server&apos;s real GameUserSettings.ini/Game.ini: a key the file already has is updated right
-        where it already sits (so it stays grouped with the rest of that section, not split off elsewhere), a key
-        it doesn&apos;t have yet is added to its section - any comment you wrote directly above a key in a template
-        comes along with it when that key is new, and the override wins over the generic template for anything both
-        set. Everything else already in the file, including anything you edited by hand, is left completely alone.
-        A server&apos;s own name always wins for SessionName, so you never need to set that yourself.
+        Write a shared base config once, then only the genuinely server-specific lines per server. &quot;Generate
+        Preview&quot; merges both into a real *.pending.ini file sitting right next to that server&apos;s own
+        GameUserSettings.ini/Game.ini, without touching the real one yet: a key the file already has is updated
+        right where it already sits (so it stays grouped with the rest of that section, not split off elsewhere), a
+        key it doesn&apos;t have yet is added to its section - any comment you wrote directly above a key in a
+        template comes along with it when that key is new, and the override wins over the generic template for
+        anything both set. Open that preview file to double-check or hand-tweak it, then &quot;Confirm Replace&quot;
+        to make it the real file - everything else already in the real file, including anything you edited by hand,
+        is left completely alone until then. A server&apos;s own name always wins for SessionName, so you never
+        need to set that yourself. &quot;Apply to All&quot; (above) skips this preview step and writes directly to
+        every server at once.
       </p>
 
       {applyResults && (

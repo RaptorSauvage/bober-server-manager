@@ -1007,6 +1007,29 @@ fn ini_templates_read_file(file_path: String, sidecar: tauri::State<SidecarHandl
     sidecar.call("iniTemplates.readFile", Some(serde_json::json!({ "filePath": file_path })))
 }
 
+/// The INI Templates redesign: stages the merged template into a real `*.pending.ini` file
+/// next to the server's own real one instead of writing it directly - ini_templates_confirm_
+/// pending below is what actually replaces the real file, once the user's happy with it.
+#[tauri::command]
+fn ini_templates_generate_pending(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("iniTemplates.generatePending", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+#[tauri::command]
+fn ini_templates_get_pending_status(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("iniTemplates.getPendingStatus", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+#[tauri::command]
+fn ini_templates_confirm_pending(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("iniTemplates.confirmPending", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
+#[tauri::command]
+fn ini_templates_discard_pending(profile_id: String, sidecar: tauri::State<SidecarHandle>) -> Result<Value, String> {
+    sidecar.call("iniTemplates.discardPending", Some(serde_json::json!({ "profileId": profile_id })))
+}
+
 /// Backs ServerDetail/FilesTab.tsx - a twenty-second real page. See sidecar.ts's own comment:
 /// real, unmodified lib/fileBrowser.ts functions, mirroring ipc/fileBrowser.ts's handlers
 /// exactly, including fileBrowser_open's real shell.openPath round trip through Rust.
@@ -2438,6 +2461,10 @@ fn main() {
             ini_templates_apply,
             ini_templates_apply_all,
             ini_templates_read_file,
+            ini_templates_generate_pending,
+            ini_templates_get_pending_status,
+            ini_templates_confirm_pending,
+            ini_templates_discard_pending,
             file_browser_list,
             file_browser_open,
             file_browser_delete,

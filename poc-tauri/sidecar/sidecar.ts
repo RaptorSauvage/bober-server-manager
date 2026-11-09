@@ -115,7 +115,14 @@ import {
   saveIniTemplateOverride,
   deleteIniTemplateOverride
 } from '../../src/main/store'
-import { applyIniTemplate, applyIniTemplateToAll } from '../../src/main/lib/iniTemplates'
+import {
+  applyIniTemplate,
+  applyIniTemplateToAll,
+  generatePendingIniTemplate,
+  getPendingIniTemplateStatus,
+  confirmPendingIniTemplate,
+  discardPendingIniTemplate
+} from '../../src/main/lib/iniTemplates'
 import { armModEvent, disarmModEvent, armAllModEvents } from '../../src/main/lib/modEvents'
 import { listMaps } from '../../src/main/lib/maps'
 import { listCustomMaps, addCustomMap, updateCustomMap, deleteCustomMap } from '../../src/main/lib/customMaps'
@@ -1020,6 +1027,38 @@ const methods: Record<string, (params: unknown) => unknown> = {
     return { ok: true }
   },
   'iniTemplates.applyAll': () => applyIniTemplateToAll(),
+  // Real, unmodified generatePendingIniTemplate/getPendingIniTemplateStatus/
+  // confirmPendingIniTemplate/discardPendingIniTemplate (lib/iniTemplates.ts) - the INI
+  // Templates redesign: Apply now stages the merged result into a real *.pending.ini file
+  // next to the server's own real one instead of writing it directly, so it can be opened and
+  // hand-tweaked (fileBrowser.open, already wired for this same real installDir) before a
+  // separate Confirm actually replaces the real file.
+  'iniTemplates.generatePending': (params) => {
+    const { profileId } = params as { profileId: string }
+    const profile = listProfiles().find((p) => p.id === profileId)
+    if (!profile) throw new Error(`Unknown profile: ${profileId}`)
+    return generatePendingIniTemplate(profile)
+  },
+  'iniTemplates.getPendingStatus': (params) => {
+    const { profileId } = params as { profileId: string }
+    const profile = listProfiles().find((p) => p.id === profileId)
+    if (!profile) throw new Error(`Unknown profile: ${profileId}`)
+    return getPendingIniTemplateStatus(profile)
+  },
+  'iniTemplates.confirmPending': (params) => {
+    const { profileId } = params as { profileId: string }
+    const profile = listProfiles().find((p) => p.id === profileId)
+    if (!profile) throw new Error(`Unknown profile: ${profileId}`)
+    confirmPendingIniTemplate(profile)
+    return { ok: true }
+  },
+  'iniTemplates.discardPending': (params) => {
+    const { profileId } = params as { profileId: string }
+    const profile = listProfiles().find((p) => p.id === profileId)
+    if (!profile) throw new Error(`Unknown profile: ${profileId}`)
+    discardPendingIniTemplate(profile)
+    return { ok: true }
+  },
   // Real, unmodified fs.readFileSync wrapper - backs the real "Import from file..." buttons
   // (reads back whatever .ini the native file picker below returned). Not Electron-coupled at
   // all in the real ipc/iniTemplates.ts handler either (it's a plain fs call wrapped in a

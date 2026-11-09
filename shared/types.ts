@@ -647,6 +647,18 @@ export interface IniTemplateApplyResult {
   error?: string
 }
 
+/** What generatePendingIniTemplate staged for one profile - real file paths (relative to that
+ *  profile's own installDir, the same convention fileBrowser.open takes) for whatever
+ *  `*.pending.ini` files it wrote, so the view can offer to open them in the user's own editor
+ *  before confirmPendingIniTemplate replaces the real files with their content. `gameIniPath`
+ *  is null when the merged template has no Game.ini entries at all - same case applyIniTemplate
+ *  itself skips touching Game.ini for. */
+export interface IniTemplatePendingResult {
+  profileId: string
+  gameUserSettingsIniPath: string
+  gameIniPath: string | null
+}
+
 /**
  * One entry of a server's generic RCON command scheduler (ARK only) - see
  * ServerProfile.scheduledRconCommands and scheduledActions.ts's own applyScheduledRconCommands.
@@ -972,6 +984,10 @@ export const IPC = {
   iniTemplatesDeleteOverride: 'ini-templates:delete-override',
   iniTemplatesApply: 'ini-templates:apply',
   iniTemplatesApplyAll: 'ini-templates:apply-all',
+  iniTemplatesGeneratePending: 'ini-templates:generate-pending',
+  iniTemplatesGetPendingStatus: 'ini-templates:get-pending-status',
+  iniTemplatesConfirmPending: 'ini-templates:confirm-pending',
+  iniTemplatesDiscardPending: 'ini-templates:discard-pending',
 
   playerActivityList: 'player-activity:list',
   playerActivitySessions: 'player-activity:sessions',
@@ -1442,12 +1458,30 @@ export interface Api {
      *  readable error (e.g. the config dir is locked while the server's running) on failure. */
     apply: (profileId: string) => Promise<void>
     /** Same, for every ARK profile at once - never rejects itself; each profile's own
-     *  success/failure is reported in the returned array instead. */
+     *  success/failure is reported in the returned array instead. Deliberately still a direct
+     *  write, skipping the generate/confirm staging below - see applyIniTemplateToAll's own
+     *  doc comment for why. */
     applyAll: () => Promise<IniTemplateApplyResult[]>
     /** Reads back an existing .ini file's raw text, picked via dialog.selectIniFile - lets
      *  a template/override textarea be filled from a file the user already has on disk
      *  instead of retyping it. Rejects with a readable error if the file can't be read. */
     readFile: (filePath: string) => Promise<string>
+    /** Stages the generic template plus this profile's own override into `*.pending.ini` files
+     *  next to its real GameUserSettings.ini/Game.ini, without touching the real files yet -
+     *  open the returned path(s) with fileBrowser.open to hand-check or tweak the merged
+     *  result before calling confirmPending. Rejects with a readable error on a staging write
+     *  failure, same cases apply() itself can fail on. */
+    generatePending: (profileId: string) => Promise<IniTemplatePendingResult>
+    /** Whatever's currently staged for this profile, or null if nothing is - lets the view
+     *  restore "pending, ready to confirm" after navigating away and back without re-staging. */
+    getPendingStatus: (profileId: string) => Promise<IniTemplatePendingResult | null>
+    /** Replaces the real GameUserSettings.ini/Game.ini with their staged `*.pending.ini`
+     *  content verbatim (hand-edits included) and removes the pending files. Rejects if
+     *  nothing was staged (generatePending wasn't called, or was already confirmed/discarded). */
+    confirmPending: (profileId: string) => Promise<void>
+    /** Discards whatever's staged for this profile without touching its real config files -
+     *  a no-op if nothing was staged. */
+    discardPending: (profileId: string) => Promise<void>
   }
   /** Desktop mirror of the web dashboard's own Files tab - same underlying logic
    *  (src/main/lib/fileBrowser.ts), exposed over IPC instead of HTTP. Every call can reject;

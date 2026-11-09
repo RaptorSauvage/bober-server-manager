@@ -26,6 +26,7 @@ import type {
   GroupConsoleEvent,
   IniTemplateApplyResult,
   IniTemplateContent,
+  IniTemplatePendingResult,
   IniTemplateProfileOverride,
   LatestBuildIdCache,
   ManagerLogEntry,
@@ -216,6 +217,10 @@ declare global {
         apply: (profileId: string) => Promise<void>
         applyAll: () => Promise<IniTemplateApplyResult[]>
         readFile: (filePath: string) => Promise<string>
+        generatePending: (profileId: string) => Promise<IniTemplatePendingResult>
+        getPendingStatus: (profileId: string) => Promise<IniTemplatePendingResult | null>
+        confirmPending: (profileId: string) => Promise<void>
+        discardPending: (profileId: string) => Promise<void>
       }
       modEvents: {
         list: () => Promise<ModEvent[]>
@@ -531,7 +536,12 @@ export function installWindowApi(): void {
       deleteOverride: (profileId) => invoke('ini_templates_delete_override', { profileId }) as Promise<IniTemplateProfileOverride[]>,
       apply: (profileId) => invoke('ini_templates_apply', { profileId }) as Promise<void>,
       applyAll: () => invoke('ini_templates_apply_all') as Promise<IniTemplateApplyResult[]>,
-      readFile: (filePath) => invoke('ini_templates_read_file', { filePath }) as Promise<string>
+      readFile: (filePath) => invoke('ini_templates_read_file', { filePath }) as Promise<string>,
+      generatePending: (profileId) => invoke('ini_templates_generate_pending', { profileId }) as Promise<IniTemplatePendingResult>,
+      getPendingStatus: (profileId) =>
+        invoke('ini_templates_get_pending_status', { profileId }) as Promise<IniTemplatePendingResult | null>,
+      confirmPending: (profileId) => invoke('ini_templates_confirm_pending', { profileId }) as Promise<void>,
+      discardPending: (profileId) => invoke('ini_templates_discard_pending', { profileId }) as Promise<void>
     },
     modEvents: {
       list: () => invoke('mod_events_list') as Promise<ModEvent[]>,

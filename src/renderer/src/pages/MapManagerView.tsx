@@ -30,9 +30,15 @@ function mergeOfficialMaps(asaMaps: MapDefinition[], aseMaps: MapDefinition[]): 
   }
   for (const m of aseMaps) {
     const existing = byName.get(m.displayName)
+    // Map.set() on an already-present key updates its value without moving it - so a map
+    // that exists on both games keeps the position its ASA entry got it above, and only an
+    // ASE-only map (no matching ASA entry yet) gets newly appended here. Net effect: the
+    // result preserves maps.json's own file order (ASA's, then any ASE-only extras after it)
+    // instead of alphabetizing - real report: alphabetizing here left no way to tell which
+    // maps.json order either game actually ships in.
     byName.set(m.displayName, { displayName: m.displayName, asaId: existing?.asaId ?? null, aseId: m.id })
   }
-  return Array.from(byName.values()).sort((a, b) => a.displayName.localeCompare(b.displayName))
+  return Array.from(byName.values())
 }
 
 const EMPTY_FORM: MapFormState = { originalId: null, id: '', displayName: '', modId: '' }

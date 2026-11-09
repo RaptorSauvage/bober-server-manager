@@ -9,7 +9,14 @@ import {
   deleteIniTemplateOverride,
   getProfile
 } from '../store'
-import { applyIniTemplate, applyIniTemplateToAll } from '../lib/iniTemplates'
+import {
+  applyIniTemplate,
+  applyIniTemplateToAll,
+  generatePendingIniTemplate,
+  getPendingIniTemplateStatus,
+  confirmPendingIniTemplate,
+  discardPendingIniTemplate
+} from '../lib/iniTemplates'
 
 function requireProfile(profileId: string) {
   const profile = getProfile(profileId)
@@ -31,6 +38,14 @@ export function registerIniTemplatesHandlers(): void {
   ipcMain.handle(IPC.iniTemplatesApply, (_event, profileId: string) => applyIniTemplate(requireProfile(profileId)))
 
   ipcMain.handle(IPC.iniTemplatesApplyAll, () => applyIniTemplateToAll())
+
+  ipcMain.handle(IPC.iniTemplatesGeneratePending, (_event, profileId: string) => generatePendingIniTemplate(requireProfile(profileId)))
+
+  ipcMain.handle(IPC.iniTemplatesGetPendingStatus, (_event, profileId: string) => getPendingIniTemplateStatus(requireProfile(profileId)))
+
+  ipcMain.handle(IPC.iniTemplatesConfirmPending, (_event, profileId: string) => confirmPendingIniTemplate(requireProfile(profileId)))
+
+  ipcMain.handle(IPC.iniTemplatesDiscardPending, (_event, profileId: string) => discardPendingIniTemplate(requireProfile(profileId)))
 
   ipcMain.handle(IPC.iniTemplatesReadFile, (_event, filePath: string) => {
     try {

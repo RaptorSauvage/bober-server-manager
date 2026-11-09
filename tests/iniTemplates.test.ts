@@ -316,3 +316,113 @@ describe('applyIniTemplate/applyIniTemplateToAll', () => {
     }
   })
 })
+
+describe('generatePendingIniTemplate/confirmPendingIniTemplate/discardPendingIniTemplate', () => {
+  let tmpDir: string
+  let installDir: string
+  let configDir: string
+  let gusPath: string
+  let gusPendingPath: string
+  let gamePath: string
+  let gamePendingPath: string
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ini-templates-pending-test-'))
+    installDir = path.join(tmpDir, 'install')
+    configDir = path.join(installDir, 'ShooterGame', 'Saved', 'Config', 'WindowsServer')
+    fs.mkdirSync(configDir, { recursive: true })
+    gusPath = path.join(configDir, 'GameUserSettings.ini')
+    gusPendingPath = path.join(configDir, 'GameUserSettings.pending.ini')
+    gamePath = path.join(configDir, 'Game.ini')
+    gamePendingPath = path.join(configDir, 'Game.pending.ini')
+    mockGeneric.value = { gameUserSettingsIni: '', gameIni: '' }
+    mockOverrides.value = new Map()
+    mockHistory.value = []
+    mockProfiles.value = []
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('stages the merged result into a *.pending.ini file without touching the real one', async () => {
+    const { generatePendingIniTemplate } = await import('../src/main/lib/iniTemplates')
+    fs.writeFileSync(gusPath, '[ServerSettings]\nServerAdminPassword=secret\n', 'utf-8')
+    mockGeneric.value = { gameUserSettingsIni: '[ServerSettings]\nMaxPlayers=70', gameIni: '' }
+
+    const result = generatePendingIniTemplate(makeProfile({ installDir, name: 'My Cool Server' }))
+
+    expect(fs.readFileSync(gusPath, 'utf-8')).toBe('[ServerSettings]\nServerAdminPassword=secret\n')
+    const pendingContent = fs.readFileSync(gusPendingPath, 'utf-8')
+    expect(pendingContent).toContain('ServerAdminPassword=secret')
+    expect(pendingContent).toContain('MaxPlayers=70')
+    expect(pendingContent).toContain('SessionName=My Cool Server')
+    expect(result.gameUserSettingsIniPath).toBe(path.join('ShooterGame', 'Saved', 'Config', 'WindowsServer', 'GameUserSettings.pending.ini'))
+    expect(result.gameIniPath).toBeNull()
+    expect(fs.existsSync(gamePendingPath)).toBe(false)
+  })
+
+  it('getPendingIniTemplateStatus reflects what was last staged, or null if nothing was', async () => {
+    const { generatePendingIniTemplate, getPendingIniTemplateStatus } = await import('../src/main/lib/iniTemplates')
+    const profile = makeProfile({ installDir })
+
+    expect(getPendingIniTemplateStatus(profile)).toBeNull()
+    generatePendingIniTemplate(profile)
+    expect(getPendingIniTemplateStatus(profile)).not.toBeNull()
+  })
+
+  it('confirmPendingIniTemplate replaces the real file with the pending file verbatim - hand-edits included - and removes it', async () => {
+    const { generatePendingIniTemplate, confirmPendingIniTemplate } = await import('../src/main/lib/iniTemplates')
+    mockGeneric.value = { gameUserSettingsIni: '[ServerSettings]\nMaxPlayers=70', gameIni: '' }
+    const profile = makeProfile({ installDir, name: 'My Cool Server' })
+    generatePendingIniTemplate(profile)
+
+    // The whole point of staging into a real file: the user can hand-edit it before confirming.
+    const handEdited = fs.readFileSync(gusPendingPath, 'utf-8').replace('MaxPlayers=70', 'MaxPlayers=10')
+    fs.writeFileSync(gusPendingPath, handEdited, 'utf-8')
+
+    confirmPendingIniTemplate(profile)
+
+    expect(fs.readFileSync(gusPath, 'utf-8')).toBe(handEdited)
+    expect(fs.existsSync(gusPendingPath)).toBe(false)
+    expect(mockHistory.value).toHaveLength(1)
+  })
+
+  it('confirmPendingIniTemplate throws when nothing was staged', async () => {
+    const { confirmPendingIniTemplate } = await import('../src/main/lib/iniTemplates')
+    expect(() => confirmPendingIniTemplate(makeProfile({ installDir }))).toThrow(/nothing staged/i)
+  })
+
+  it('discardPendingIniTemplate removes the staged files without touching the real ones', async () => {
+    const { generatePendingIniTemplate, discardPendingIniTemplate } = await import('../src/main/lib/iniTemplates')
+    fs.writeFileSync(gusPath, '[ServerSettings]\nMaxPlayers=70\n', 'utf-8')
+    mockGeneric.value = { gameUserSettingsIni: '[ServerSettings]\nMaxPlayers=10', gameIni: '' }
+    const profile = makeProfile({ installDir })
+    generatePendingIniTemplate(profile)
+
+    discardPendingIniTemplate(profile)
+
+    expect(fs.existsSync(gusPendingPath)).toBe(false)
+    expect(fs.readFileSync(gusPath, 'utf-8')).toBe('[ServerSettings]\nMaxPlayers=70\n')
+  })
+
+  it('discardPendingIniTemplate is a no-op, not an error, when nothing was staged', async () => {
+    const { discardPendingIniTemplate } = await import('../src/main/lib/iniTemplates')
+    expect(() => discardPendingIniTemplate(makeProfile({ installDir }))).not.toThrow()
+  })
+
+  it('a re-generate drops a stale Game.pending.ini once the override no longer has any Game.ini entries', async () => {
+    const { generatePendingIniTemplate } = await import('../src/main/lib/iniTemplates')
+    mockGeneric.value = { gameUserSettingsIni: '', gameIni: '[/script/shootergame.shootergamemode]\nXPMultiplier=2.0' }
+    const profile = makeProfile({ installDir })
+    const first = generatePendingIniTemplate(profile)
+    expect(first.gameIniPath).not.toBeNull()
+    expect(fs.existsSync(gamePendingPath)).toBe(true)
+
+    mockGeneric.value = { gameUserSettingsIni: '', gameIni: '' }
+    const second = generatePendingIniTemplate(profile)
+
+    expect(second.gameIniPath).toBeNull()
+    expect(fs.existsSync(gamePendingPath)).toBe(false)
+  })
+})

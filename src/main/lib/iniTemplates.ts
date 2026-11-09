@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { IniTemplateApplyResult, ServerProfile } from '@shared/types'
+import type { IniTemplateApplyResult, IniTemplatePendingResult, ServerProfile } from '@shared/types'
 import { listProfiles, getIniTemplateGeneric, getIniTemplateOverride, recordConfigFileHistory } from '../store'
 import { resolveConfigDir } from './config'
 import { upsertIniKeys, type IniUpsertEntry } from './gameConfigWrite'
@@ -129,7 +129,10 @@ export function applyIniTemplate(profile: ServerProfile): void {
 
 /** Same as applyIniTemplate, for every ARK profile at once - never rejects itself, each
  *  profile's own outcome is reported in the returned array instead, so one bad override
- *  doesn't stop the rest of the cluster from being applied. */
+ *  doesn't stop the rest of the cluster from being applied. Deliberately still a direct,
+ *  immediate write (not staged via generatePendingIniTemplate below) - a bulk push across a
+ *  whole cluster is the one case where reviewing N staged files one by one before confirming
+ *  each would be busywork, not safety. */
 export function applyIniTemplateToAll(): IniTemplateApplyResult[] {
   const arkProfiles = listProfiles()
   return arkProfiles.map((profile) => {
@@ -140,4 +143,142 @@ export function applyIniTemplateToAll(): IniTemplateApplyResult[] {
       return { profileId: profile.id, profileName: profile.name, ok: false, error: (err as Error).message }
     }
   })
+}
+
+/** `<dir>/GameUserSettings.ini` -> `<dir>/GameUserSettings.pending.ini` - a real, separate
+ *  file living right next to the real one (same folder the user already finds it in,
+ *  including in a Files tab/Explorer listing), so it opens in whatever text editor the user
+ *  already uses for hand-editing INI files, not something only this app can see. */
+function toPendingPath(realPath: string): string {
+  const ext = path.extname(realPath)
+  return `${realPath.slice(0, -ext.length)}.pending${ext}`
+}
+
+function gusAndGamePaths(profile: ServerProfile): { gusPath: string; gamePath: string } {
+  const configDir = resolveConfigDir(profile.installDir)
+  return { gusPath: path.join(configDir, 'GameUserSettings.ini'), gamePath: path.join(configDir, 'Game.ini') }
+}
+
+/** Copies the real file's current content into `stagingPath` (an empty starting point if the
+ *  real file doesn't exist yet, same convention upsertIniKeys itself already uses), then runs
+ *  the exact same surgical per-key upsert applyIniTemplate uses onto that copy instead of the
+ *  real file - so the staged result is exactly what Apply would have written, just sitting in
+ *  a separate file first. */
+function stageUpsert(realPath: string, stagingPath: string, entries: IniUpsertEntry[]): void {
+  const existing = fs.existsSync(realPath) ? fs.readFileSync(realPath, 'utf-8') : ''
+  fs.mkdirSync(path.dirname(stagingPath), { recursive: true })
+  fs.writeFileSync(stagingPath, existing, 'utf-8')
+  upsertIniKeys(stagingPath, entries)
+}
+
+function toPendingResult(profile: ServerProfile, gusPendingPath: string, gamePendingPath: string): IniTemplatePendingResult {
+  return {
+    profileId: profile.id,
+    gameUserSettingsIniPath: path.relative(profile.installDir, gusPendingPath),
+    gameIniPath: fs.existsSync(gamePendingPath) ? path.relative(profile.installDir, gamePendingPath) : null
+  }
+}
+
+/**
+ * The INI Templates redesign: instead of Apply writing straight into a profile's real
+ * GameUserSettings.ini/Game.ini, it first stages the exact same merged result into
+ * `*.pending.ini` files sitting right next to them - lets the user open and hand-tweak that
+ * separate file in their own editor if the merged result needs a correction, before anything
+ * about their real, currently-working config is touched. Nothing about the real files changes
+ * until confirmPendingIniTemplate is called.
+ */
+export function generatePendingIniTemplate(profile: ServerProfile): IniTemplatePendingResult {
+  const generic = getIniTemplateGeneric()
+  const override = getIniTemplateOverride(profile.id)
+
+  const gusEntries = mergeEntries(parseIniEntries(generic.gameUserSettingsIni), parseIniEntries(override?.gameUserSettingsIni ?? ''))
+  gusEntries.push({ section: 'SessionSettings', key: 'SessionName', value: override?.sessionName.trim() || profile.name })
+  const gameEntries = mergeEntries(parseIniEntries(generic.gameIni), parseIniEntries(override?.gameIni ?? ''))
+
+  const { gusPath, gamePath } = gusAndGamePaths(profile)
+  const gusPendingPath = toPendingPath(gusPath)
+  const gamePendingPath = toPendingPath(gamePath)
+
+  try {
+    stageUpsert(gusPath, gusPendingPath, gusEntries)
+  } catch (err) {
+    throw new Error(`GameUserSettings.ini: ${(err as Error).message}`)
+  }
+
+  if (gameEntries.length > 0) {
+    try {
+      stageUpsert(gamePath, gamePendingPath, gameEntries)
+    } catch (err) {
+      throw new Error(`Game.ini: ${(err as Error).message}`)
+    }
+  } else if (fs.existsSync(gamePendingPath)) {
+    // A pending file staged by an earlier generate (back when the override still had Game.ini
+    // entries) would otherwise sit there stale, forever - confirmPendingIniTemplate picks up
+    // anything it finds, so a Game.ini this template no longer touches at all must not leave
+    // one behind for it to mistakenly pick up.
+    fs.rmSync(gamePendingPath)
+  }
+
+  return toPendingResult(profile, gusPendingPath, gamePendingPath)
+}
+
+/** Whatever's currently staged for this profile, or `null` if generatePendingIniTemplate has
+ *  never been run (or its result was already confirmed/discarded) - lets the view restore the
+ *  "pending, ready to confirm" state after navigating away and back, without regenerating
+ *  (and so without re-reading the real files) just to check. */
+export function getPendingIniTemplateStatus(profile: ServerProfile): IniTemplatePendingResult | null {
+  const { gusPath, gamePath } = gusAndGamePaths(profile)
+  const gusPendingPath = toPendingPath(gusPath)
+  if (!fs.existsSync(gusPendingPath)) return null
+  return toPendingResult(profile, gusPendingPath, toPendingPath(gamePath))
+}
+
+/** Replaces the real file with its staged `*.pending.ini` content verbatim - whatever the
+ *  pending file holds at this point, hand-edits included, is exactly what the real file ends
+ *  up with (not re-run through the template merge a second time). Snapshots the real file into
+ *  the same Files-tab history applyIniTemplate itself records to first, same undo story. */
+function commitPending(profileId: string, installDir: string, realPath: string, pendingPath: string): void {
+  const pendingContent = fs.readFileSync(pendingPath, 'utf-8')
+  snapshotBeforeApply(profileId, installDir, realPath)
+  fs.mkdirSync(path.dirname(realPath), { recursive: true })
+  fs.writeFileSync(realPath, pendingContent, 'utf-8')
+  fs.rmSync(pendingPath)
+}
+
+/** Confirms whatever generatePendingIniTemplate most recently staged for this profile,
+ *  replacing its real GameUserSettings.ini/Game.ini. Throws if nothing's staged - the view
+ *  always generates before letting Confirm be clicked, so this only fires on a genuinely
+ *  stale call (e.g. two tabs/windows open on the same profile). */
+export function confirmPendingIniTemplate(profile: ServerProfile): void {
+  const { gusPath, gamePath } = gusAndGamePaths(profile)
+  const gusPendingPath = toPendingPath(gusPath)
+  const gamePendingPath = toPendingPath(gamePath)
+
+  if (!fs.existsSync(gusPendingPath)) {
+    throw new Error('Nothing staged to confirm for this server - generate the preview again first.')
+  }
+
+  try {
+    commitPending(profile.id, profile.installDir, gusPath, gusPendingPath)
+  } catch (err) {
+    throw new Error(`GameUserSettings.ini: ${(err as Error).message}`)
+  }
+
+  if (fs.existsSync(gamePendingPath)) {
+    try {
+      commitPending(profile.id, profile.installDir, gamePath, gamePendingPath)
+    } catch (err) {
+      throw new Error(`Game.ini: ${(err as Error).message}`)
+    }
+  }
+}
+
+/** Throws away whatever's staged for this profile without touching its real config files -
+ *  the "never mind" counterpart to confirmPendingIniTemplate. A no-op (not an error) if
+ *  nothing was staged, same forgiving-delete convention as deleteCustomMap/profiles.delete. */
+export function discardPendingIniTemplate(profile: ServerProfile): void {
+  const { gusPath, gamePath } = gusAndGamePaths(profile)
+  for (const pendingPath of [toPendingPath(gusPath), toPendingPath(gamePath)]) {
+    if (fs.existsSync(pendingPath)) fs.rmSync(pendingPath)
+  }
 }
