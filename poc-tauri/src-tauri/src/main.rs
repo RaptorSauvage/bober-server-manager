@@ -101,19 +101,24 @@ struct ShellRequest {
 
 /// Best-effort graceful bot shutdown (same RPC bot_stop uses, which calls the real
 /// stopDiscordBot() - closes the Discord gateway connection cleanly rather than yanking it),
-/// then kill the sidecar's process group (which the bot, spawned as its child, is already part
-/// of - see spawn_sidecar's own `set_process_group` comment). Shared by RunEvent::Exit (every
-/// normal quit path) and app_update_install (see that function's own comment on why Windows
-/// needs this called explicitly, before update.install() rather than relying on the exit event).
+/// then kills the sidecar's own single process (CommandChild::kill(), no Job Object involved
+/// any more - see spawn_sidecar's own comment on why that was removed). Shared by
+/// RunEvent::Exit (every normal quit path) and app_update_install (see that function's own
+/// comment on why Windows needs this called explicitly, before update.install() rather than
+/// relying on the exit event).
 ///
-/// Real report: even with this called before install() on Windows, the update installer still
-/// failed to overwrite bot-bin.exe/sidecar-bin.exe (only the main .exe got replaced) - the Job
-/// Object kill from `child.kill()` either isn't reliably cascading to the bot's own process on
-/// this install path, or isn't synchronous enough for the installer launched right after to see
-/// the file unlocked. `taskkill /F` below is a blunter, synchronous backstop scoped to these two
-/// app-specific binary names (safe to call unconditionally - "not found" is the common, expected
-/// case on every quit path that never spawned a bot) - it waits for the kill to actually
-/// complete rather than just signaling it, closing whatever gap the Job Object left open.
+/// Real report (from back when a Job Object was still in the picture): even with this called
+/// before install() on Windows, the update installer still failed to overwrite bot-bin.exe/
+/// sidecar-bin.exe (only the main .exe got replaced) - the Job Object kill from `child.kill()`
+/// either wasn't reliably cascading to the bot's own process on this install path, or wasn't
+/// synchronous enough for the installer launched right after to see the file unlocked.
+/// `taskkill /F` below is a blunter, synchronous backstop scoped to these two app-specific
+/// binary names by exact image name only, deliberately without `/T` (which would also kill
+/// every child of whatever matched - exactly the "a running ARK server is bot-bin's/
+/// sidecar-bin's own child too" case that made the Job Object itself un-safe to keep, see
+/// spawn_sidecar's own comment) - safe to call unconditionally ("not found" is the common,
+/// expected case on every quit path that never spawned a bot), and it waits for the kill to
+/// actually complete rather than just signaling it.
 /// Temporary diagnostic aid (see shutdown_sidecar's own comment on the update-install bug this
 /// is chasing): appends a timestamped line to shutdown-debug.log next to the running exe. Never
 /// panics/propagates an error - a failed debug write must not break the real shutdown path it's
@@ -183,8 +188,13 @@ fn shutdown_sidecar(app_handle: &tauri::AppHandle) {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         for image in ["bot-bin.exe", "sidecar-bin.exe"] {
+            // Deliberately no `/T` (would also kill every child process of whatever matched,
+            // e.g. a live ARK/Minecraft server started by the sidecar - see this function's
+            // own doc comment and spawn_sidecar's own comment on the Job Object this replaced).
+            // `/IM` alone still reaches bot-bin.exe/sidecar-bin.exe specifically by exact image
+            // name, regardless of what spawned them or what they themselves spawned.
             let output = std::process::Command::new("taskkill")
-                .args(["/F", "/T", "/IM", image])
+                .args(["/F", "/IM", image])
                 .creation_flags(CREATE_NO_WINDOW)
                 .output();
             match output {
@@ -1889,17 +1899,29 @@ fn spawn_sidecar(app: &tauri::App) -> SidecarHandle {
         }
     };
 
-    // Fixes a real report: quitting the Manager left both the sidecar and the Discord bot
-    // running as orphaned background processes (visible in Task Manager, still holding the
-    // Discord gateway connection open) - this app never killed either of them, it just exited
-    // and left them behind. `set_process_group(true)` puts the sidecar in its own process group
-    // on Unix, or a Windows Job Object on Windows (tauri-plugin-shell's own process/job_object.rs)
-    // - and since bot-bin is spawned *by* the sidecar (discordBot.ts's own fork()/spawn(), not by
-    // Rust), it inherits that same group/job automatically rather than needing to be tracked
-    // separately. Without this, `CommandChild::kill()` (used below, in main()'s own
-    // `RunEvent::Exit` handler) only reaches the sidecar itself, not whatever it spawned - see
-    // that handler's own comment for why killing at all was missing in the first place.
-    let sidecar_command = sidecar_command.set_process_group(true);
+    // `set_process_group(true)` used to live here (puts the sidecar in its own process group on
+    // Unix, or a Windows Job Object on Windows - tauri-plugin-shell's own process/job_object.rs)
+    // to fix a real report: quitting the Manager left the Discord bot running as an orphaned
+    // background process, because CommandChild::kill() (main()'s own `RunEvent::Exit` handler,
+    // below) only reaches the sidecar itself, not bot-bin (spawned *by* the sidecar - see
+    // discordBot.ts's own fork()/spawn() - which inherited the same job rather than needing to
+    // be tracked separately).
+    //
+    // Removed after a real, much worse report: a running ARK server (also spawned *by* the
+    // sidecar, see serverProcess.ts's own startServer - `detached: true` there only keeps it
+    // alive past the sidecar's own exit, it does nothing to a Windows Job Object, which a child
+    // process joins automatically regardless of "detached") got killed too, every time the
+    // Manager itself was closed or restarted - on Windows, `CommandChild::kill()` with
+    // `process_group(true)` set calls `TerminateJobObject`, which kills *every* process the OS
+    // ever placed in that job, not just the sidecar (tauri-plugin-shell's own process/mod.rs
+    // `send_kill`, `#[cfg(windows)] match &self.job { Some(job) => job.terminate(), ... }` -
+    // there's no public API on tauri-plugin-shell's JobObject to scope this to just the sidecar
+    // and bot, short of patching the dependency or hand-rolling a Win32 breakaway, both out of
+    // scope here). A production Manager killing someone's live ARK server (no graceful
+    // SaveWorld, just a hard TerminateProcess) on every ordinary restart is a far worse outcome
+    // than an orphaned bot-bin.exe in Task Manager, so this had to go - the bot/sidecar cleanup
+    // below (`bot.stop` RPC, then a by-exact-image-name `taskkill` - see shutdown_sidecar's own
+    // updated comment) doesn't depend on this at all, so removing it costs nothing there either.
 
     // Node's libuv threadpool defaults to only 4 worker threads, shared by every async fs/dns
     // call the sidecar makes. Found via a real freeze report: isValidArkInstall() (now async,
@@ -2571,8 +2593,8 @@ fn main() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             // Real report: closing the Manager left the sidecar (and the Discord bot it spawns
-            // - see spawn_sidecar's own `set_process_group` comment) running as orphaned
-            // background processes. Nothing anywhere in this file ever killed either of them on
+            // - see shutdown_sidecar's own doc comment) running as orphaned background
+            // processes. Nothing anywhere in this file ever killed either of them on
             // exit - the whole Tauri app just terminated and left its child process tree behind,
             // the same gap `kill_on_drop`/Drop-based cleanup wouldn't reliably close either,
             // since there's no guarantee Drop glue for long-lived managed state runs before the

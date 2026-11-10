@@ -4053,3 +4053,37 @@ target/debug/` that the compiled file really is `Bober-Server-Manager` now, and 
 boot-and-quit cycle (log line reads `(Bober-Server-Manager:1998)`, not the old name) that nothing
 else - the sidecar spawn, the RunEvent::Exit cleanup above, the Windows cross-target check -
 depends on the binary's own filename anywhere, so this was a safe, self-contained rename.
+
+## A much worse real report: restarting the Manager killed a live ARK server
+
+The orphaned-sidecar/bot fix above (`set_process_group(true)` + a Windows Job Object) had an
+unexamined side effect: a live ARK server, started through the Manager and left running when
+the Manager itself was closed or restarted, got killed too - every single time, not an edge
+case. `serverProcess.ts`'s `startServer()` spawns it with `detached: true` specifically so it
+survives the sidecar's own exit (`adoptPersistedProcesses()` re-attaches to it on the next
+launch) - but `detached` on Windows only affects console/Ctrl+C process-group semantics, nothing
+to do with a Windows Job Object, which a child process joins automatically regardless of
+"detached" unless something explicitly makes it break away. Since the ARK server process is
+spawned *by* the sidecar, and the sidecar was in that Job Object, the server was too - and
+`CommandChild::kill()` with `process_group(true)` set doesn't kill just the sidecar's own PID on
+Windows, it calls `TerminateJobObject`, which kills *every* process the OS ever placed in that
+job (confirmed by reading `tauri-plugin-shell`'s own `process/job_object.rs`/`process/mod.rs`
+`send_kill` - there's no public API on its `JobObject` to scope this to just the sidecar and
+bot). A hard `TerminateProcess` on a live ARK server - no graceful `SaveWorld`, no warning to
+connected players - on every ordinary Manager restart, is a far worse outcome than the orphaned
+`bot-bin.exe` the Job Object was there to prevent in the first place.
+
+Fixed by removing `set_process_group(true)` from `spawn_sidecar` entirely, and dropping `/T`
+from both `taskkill` calls in `shutdown_sidecar` (the synchronous backstop added for the earlier
+update-install race - see that function's own doc comment): `/T` kills every child process of
+whatever matched the image name too, the exact same "an ARK server is bot-bin's/sidecar-bin's
+own child" problem the Job Object had, just reached a different way. `taskkill /F /IM <name>`
+alone still reaches `bot-bin.exe`/`sidecar-bin.exe` specifically by their own exact image name,
+regardless of what spawned them or what they themselves spawned, so the original orphan-cleanup
+goal is still met - it just no longer has a path to anything *else* those two processes happen
+to have running as their own children. `CommandChild::kill()` on the sidecar itself, with no
+Job Object now, falls back to a plain single-PID `TerminateProcess` (tauri-plugin-shell's own
+`send_kill`, the `self.job: None` branch) - exactly as surgical as the taskkill calls right after
+it. Verified via `cargo check --target x86_64-pc-windows-gnu` (the only platform a Job Object
+ever existed on in the first place); a live round-trip (start an ARK server, restart the
+Manager, confirm the server's still running afterward) needs a real Windows machine to confirm.
