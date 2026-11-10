@@ -1744,6 +1744,13 @@ registerBackupScheduleWatcher()
 // itself restarted, exactly the "doesn't start when the manager starts" gap reported.
 applyWebDashboardSettings(getSettings())
 
+// Real, unmodified applyDiscordBotSettings(getSettings()) - the real index.ts's own very next
+// startup call, right after applyWebDashboardSettings above (`void applyDiscordBotSettings(...)`,
+// same fire-and-forget shape kept here) - missed when that one was added, by the same gap: the
+// bot only ever started from something explicitly calling 'bot.start'/'settings.save', so
+// discordBotEnabled staying on across a sidecar restart never actually restarted the bot itself.
+void applyDiscordBotSettings(getSettings())
+
 // Real, unmodified armAllModEvents() - the real index.ts's own startup call, same shape as
 // adoptPersistedProcesses/registerBackupScheduleWatcher above: arms every saved event's real
 // node-cron/setTimeout schedule AND runs an immediate reconciliation pass per event, so a

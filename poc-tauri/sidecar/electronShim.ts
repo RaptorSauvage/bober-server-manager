@@ -13,6 +13,22 @@ import { callRust } from './rpcToRust'
 
 const POC_USER_DATA = path.join(os.homedir(), '.tauri-poc-bober-manager')
 
+// Set by main.rs (spawn_sidecar) only for the genuine packaged `sidecar-bin` launch, to Tauri's
+// own resolved bundle.resources directory - never set for the dev-mode SIDECAR_PATH override,
+// which instead gets a plain current_dir() pointed at the repo root (see that branch's own
+// comment in main.rs for why `build/icon.png`-relative reads already work there without this).
+// Real report: webDashboard.ts's favicon/game-icon routes 404'd in an actual installed build -
+// isPackaged being a hardcoded `false` below meant its `app.isPackaged ? process.resourcesPath
+// : process.cwd()`-relative branch never took the packaged half either way, so a real install's
+// sidecar-bin.exe (no repo checkout, no `build/` folder anywhere near its own cwd) always missed.
+// Patching the real Node `process` object here (not just this shim's own `app`) is deliberate:
+// webDashboard.ts reads `process.resourcesPath` directly, exactly like real Electron does (it
+// patches the same global), not through this shim's `app` at all.
+const resourceDir = process.env.TAURI_RESOURCE_DIR
+if (resourceDir) {
+  ;(process as unknown as { resourcesPath: string }).resourcesPath = resourceDir
+}
+
 export const app = {
   getPath(name: string): string {
     if (name === 'userData') return POC_USER_DATA
@@ -22,7 +38,7 @@ export const app = {
   getVersion(): string {
     return '0.0.0-poc'
   },
-  isPackaged: false,
+  isPackaged: Boolean(resourceDir),
   setLoginItemSettings(_settings: { openAtLogin: boolean }): void {
     // No real "launch at login" concept for a plain Node child process - lib/launchOnStartup.ts
     // already wraps its one call to this in a try/catch and treats a thrown error as a

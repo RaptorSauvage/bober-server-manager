@@ -1864,10 +1864,29 @@ fn spawn_sidecar(app: &tauri::App) -> SidecarHandle {
             let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
             app.shell().command("node").arg(path).current_dir(repo_root)
         }
-        Err(_) => app
-            .shell()
-            .sidecar("sidecar-bin")
-            .expect("failed to resolve the 'sidecar-bin' sidecar - check tauri.conf.json's bundle.externalBin and run sidecar/build-sea.mjs first"),
+        Err(_) => {
+            let sidecar = app
+                .shell()
+                .sidecar("sidecar-bin")
+                .expect("failed to resolve the 'sidecar-bin' sidecar - check tauri.conf.json's bundle.externalBin and run sidecar/build-sea.mjs first");
+            // The real packaged-build counterpart to the dev-mode current_dir() fix above - the
+            // comment on that fix assumed `process.resourcesPath` "isn't affected by this at
+            // all" once genuinely packaged, but that was never actually true: electronShim.ts's
+            // `app.isPackaged` is a hardcoded `false` (see its own doc comment - a deliberate
+            // PoC-scope stub, not something that flips itself based on how the sidecar was
+            // launched), so webDashboard.ts's real, unmodified `app.isPackaged ? ... :
+            // process.cwd()`-relative branch never took the packaged half either way - a real
+            // install's sidecar-bin.exe has no `build/icon.png`/`build/games/*.png` anywhere
+            // relative to whatever cwd Windows happened to launch it with, so every favicon/
+            // game-icon request 404'd. TAURI_RESOURCE_DIR tells electronShim.ts where Tauri's
+            // own bundled resources (tauri.conf.json's `bundle.resources`, below) actually are
+            // this run, so it can flip `isPackaged`/`process.resourcesPath` to match - at which
+            // point webDashboard.ts's already-correct packaged branch just works, unmodified.
+            match app.path().resource_dir() {
+                Ok(dir) => sidecar.env("TAURI_RESOURCE_DIR", dir.to_string_lossy().to_string()),
+                Err(_) => sidecar,
+            }
+        }
     };
 
     // Fixes a real report: quitting the Manager left both the sidecar and the Discord bot
