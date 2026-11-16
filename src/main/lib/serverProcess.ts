@@ -761,6 +761,32 @@ function doSpawn(profile: ServerProfile, startedAt: number): ServerStatus {
     return failed
   }
 
+  // Declared here (before the pid check below), reassigned once the process is confirmed
+  // actually running - so the single 'error' listener right below can always reference them
+  // safely, even for a failure that happens before any of them get their real value.
+  let fallback: NodeJS.Timeout | undefined
+  let stopWatchingLog: () => void = () => {}
+  let stopBatchPidHandoff: () => void = () => {}
+
+  // Registered immediately after spawn() (before even checking `pid` below), covering this
+  // child's whole lifetime in one place - previously split in two, with nothing at all
+  // covering a spawn failure that doesn't throw synchronously (the common case for a bad
+  // install path or a permissions/antivirus block on Windows: Node's spawn() returns right
+  // away with `pid` already undefined, but only *reports* the real reason - ENOENT, EACCES,
+  // ... - a tick later via this same 'error' event). A real report: with no listener
+  // attached yet at that point, every one of those failures showed only this function's own
+  // generic "Process started without a pid." - the actual OS error had nowhere to go, and on
+  // the Tauri sidecar specifically (no process-level uncaughtException handler at all, unlike
+  // the real Electron index.ts) risked crashing the whole sidecar instead, since 'error' is
+  // special-cased by Node's EventEmitter to throw when it fires with zero listeners.
+  child.on('error', (err) => {
+    clearTimeout(fallback)
+    stopWatchingLog()
+    stopBatchPidHandoff()
+    running.delete(profile.id)
+    emitStatus({ profileId: profile.id, state: 'error', lastError: err.message })
+  })
+
   const pid = child.pid
   if (!pid) {
     running.delete(profile.id)
@@ -786,9 +812,9 @@ function doSpawn(profile: ServerProfile, startedAt: number): ServerStatus {
   setRunningStartedAt(profile.id, startedAt)
   emitStatus(status)
 
-  const fallback = setTimeout(() => markReady(), STARTUP_FALLBACK_MS)
-  const stopWatchingLog = watchLogFileForMarker(profile.installDir, STARTUP_COMPLETE_MARKER, () => markReady(), startedAt)
-  const stopBatchPidHandoff = launchViaBatch ? watchForBatchPidHandoff(profile.id, profile.rconPort, pid) : () => {}
+  fallback = setTimeout(() => markReady(), STARTUP_FALLBACK_MS)
+  stopWatchingLog = watchLogFileForMarker(profile.installDir, STARTUP_COMPLETE_MARKER, () => markReady(), startedAt)
+  stopBatchPidHandoff = launchViaBatch ? watchForBatchPidHandoff(profile.id, profile.rconPort, pid) : () => {}
 
   function markReady(): void {
     clearTimeout(fallback)
@@ -814,13 +840,6 @@ function doSpawn(profile: ServerProfile, startedAt: number): ServerStatus {
       return
     }
     void handleUnexpectedExit(profile)
-  })
-
-  child.on('error', (err) => {
-    clearTimeout(fallback)
-    stopWatchingLog()
-    stopBatchPidHandoff()
-    emitStatus({ profileId: profile.id, state: 'error', lastError: err.message })
   })
 
   return status

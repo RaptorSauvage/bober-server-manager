@@ -5,15 +5,20 @@ import { platform } from 'node:process'
 import type { ServerProfile } from '../shared/types'
 
 class FakeChildProcess extends EventEmitter {
-  pid = 4242
+  pid: number | undefined
   unref = vi.fn()
   kill = vi.fn()
+  constructor(pid: number | undefined = 4242) {
+    super()
+    this.pid = pid
+  }
 }
 
 const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn(() => new FakeChildProcess()) }))
 vi.mock('node:child_process', () => ({ spawn: spawnMock, exec: vi.fn() }))
 
-import { startServer, getExecutablePath, __resetServerSpawnQueueForTests } from '../src/main/lib/serverProcess'
+import { startServer, serverEvents, getExecutablePath, __resetServerSpawnQueueForTests } from '../src/main/lib/serverProcess'
+import type { ServerStatus } from '../shared/types'
 
 beforeEach(() => {
   __resetServerSpawnQueueForTests()
@@ -92,5 +97,40 @@ describe('startServer spawn options', () => {
 
     const [, , options] = spawnMock.mock.calls[0]
     expect(options.windowsVerbatimArguments).toBe(true)
+  })
+
+  it('attaches the error listener before checking pid, so a deferred async spawn failure never throws unhandled and the real OS error replaces the generic "no pid" message', () => {
+    spawnMock.mockClear()
+    // spawn() returning with pid already undefined, then reporting the real failure
+    // (ENOENT/EACCES, the common real-world case) a tick later via 'error' - the exact shape
+    // Node itself uses for a spawn that fails without throwing synchronously.
+    const failingChild = new FakeChildProcess(undefined)
+    spawnMock.mockReturnValueOnce(failingChild)
+    const profile = makeProfile({ id: 'no-pid-test' })
+
+    const immediate = startServer(profile)
+    expect(immediate.state).toBe('error')
+    expect(immediate.lastError).toBe('Process started without a pid.')
+
+    // A failed spawn never ends up in the `running` map, so getStatus() (which only reads
+    // from there) can't observe this - subscribe to the raw broadcast instead, same as every
+    // other real listener (the IPC status push, crashWatch, ...) does.
+    const seen: ServerStatus[] = []
+    const onStatus = (status: ServerStatus): void => {
+      if (status.profileId === profile.id) seen.push(status)
+    }
+    serverEvents.on('status', onStatus)
+
+    // If the fix's listener weren't already attached at this point, this emit() would throw
+    // instead of returning - EventEmitter's own special case for 'error' with zero listeners -
+    // failing this test outright rather than silently passing.
+    try {
+      expect(() => failingChild.emit('error', new Error('spawn ENOENT'))).not.toThrow()
+    } finally {
+      serverEvents.off('status', onStatus)
+    }
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ profileId: profile.id, state: 'error', lastError: 'spawn ENOENT' })
   })
 })
