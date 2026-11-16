@@ -414,6 +414,28 @@ async function doSpawn(profile: MinecraftProfile, startedAt: number, isCancelled
     return
   }
 
+  // Declared here (before the pid check below), reassigned once the process is confirmed
+  // actually running - so the single 'error' listener right below can always reference it
+  // safely, even for a failure that happens before it gets its real value. Registered
+  // immediately after spawn() (before even checking `pid`), covering this child's whole
+  // lifetime in one place - previously nothing at all covered a spawn failure that doesn't
+  // throw synchronously (the common case for a bad install path or a permissions/antivirus
+  // block: Node's spawn() returns right away with `pid` already undefined, but only
+  // *reports* the real reason - ENOENT, EACCES, ... - a tick later via this same 'error'
+  // event). Real report (same bug, same fix, as serverProcess.ts's own ARK equivalent -
+  // see its own doc comment): with no listener attached yet at that point, every one of
+  // those failures showed only this function's own generic "Process started without a pid."
+  // - the actual OS error had nowhere to go, since 'error' is special-cased by Node's
+  // EventEmitter to throw when it fires with zero listeners.
+  let stopPidHandoffWatch: () => void = () => {}
+  child.on('error', (err) => {
+    stopPidHandoffWatch()
+    running.delete(profile.id)
+    setMinecraftRunningPid(profile.id, null)
+    setMinecraftRunningStartedAt(profile.id, null)
+    emitStatus({ profileId: profile.id, state: 'error', lastError: err.message })
+  })
+
   const pid = child.pid
   if (!pid) {
     running.delete(profile.id)
@@ -441,7 +463,7 @@ async function doSpawn(profile: MinecraftProfile, startedAt: number, isCancelled
   setMinecraftRunningStartedAt(profile.id, startedAt)
   emitStatus(status)
 
-  const stopPidHandoffWatch = launchedViaWindowsScriptWrapper
+  stopPidHandoffWatch = launchedViaWindowsScriptWrapper
     ? watchForScriptPidHandoff(profile.id, getMinecraftServerPort(profile.installDir), pid)
     : () => {}
 
@@ -493,14 +515,6 @@ async function doSpawn(profile: MinecraftProfile, startedAt: number, isCancelled
         ? { lastError: `Process exited with code ${code}${signal ? ` (signal ${signal})` : ''}` }
         : {})
     })
-  })
-
-  child.on('error', (err) => {
-    stopPidHandoffWatch()
-    running.delete(profile.id)
-    setMinecraftRunningPid(profile.id, null)
-    setMinecraftRunningStartedAt(profile.id, null)
-    emitStatus({ profileId: profile.id, state: 'error', lastError: err.message })
   })
 }
 
